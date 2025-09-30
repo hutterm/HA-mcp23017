@@ -192,6 +192,11 @@ class MCP23017BinarySensor(BinarySensorEntity):
         }
 
     @property
+    def available(self):
+        """Return if entity is available."""
+        return self.device is not None
+
+    @property
     def device(self):
         """Get device property."""
         return self._device

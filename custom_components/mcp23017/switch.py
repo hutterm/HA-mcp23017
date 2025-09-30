@@ -195,6 +195,10 @@ class MCP23017Switch(SwitchEntity):
         return self._i2c_bus
 
     @property
+    def available(self):
+        """Return if entity is available."""
+        return self.device is not None
+    @property
     def device_info(self):
         """Device info."""
         return {

@@ -233,14 +233,13 @@ async def async_get_or_create(hass, config_entry, entity):
 
     except ValueError as error:
         component = None
-        await hass.config_entries.async_remove(config_entry.entry_id)
-
         persistent_notification.create(
             hass,
             f"Error: Unable to access {DOMAIN}:{domain_id} ({error})",
             title=f"{DOMAIN} Configuration",
             notification_id=f"{DOMAIN} notification",
         )
+        
 
     return component
 
