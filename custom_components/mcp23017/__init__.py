@@ -211,7 +211,7 @@ async def async_get_or_create(hass, config_entry, entity):
             else:
                 # Try to create component when it doesn't exist
                 component = await hass.async_add_executor_job(
-                    functools.partial(MCP23017, i2c_bus, i2c_address)
+                    functools.partial(MCP23017, hass, i2c_bus, i2c_address)
                 )
                 hass.data[DOMAIN][domain_id] = component
 
@@ -258,10 +258,11 @@ def i2c_device_exist(bus, address):
 class MCP23017:
     """MCP23017 device driver."""
 
-    def __init__(self, bus, address):
+    def __init__(self, hass, bus, address):
         """Create a MCP23017 instance at {address} on I2C {bus}."""
         self._address = address
         self._busNumber = bus
+        self.hass = hass
 
         # Check device presence
         try:
@@ -421,7 +422,7 @@ class MCP23017:
         if self._run:
             return
         self._run = True
-        self._task = asyncio.create_task(self._poll_loop())
+        self._task = self.hass.loop.create_task(self._poll_loop())
 
     async def stop_polling(self):
         """Stop async polling task."""
