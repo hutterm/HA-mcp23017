@@ -250,7 +250,7 @@ async def async_get_or_create(hass, config_entry, entity):
 def i2c_device_exist(bus, address):
     try:
         smbus2.SMBus(bus).read_byte(address)
-    except (FileNotFoundError, OSError) as error:
+    except (FileNotFoundError, OSError):
         return False
     return True
 
@@ -282,6 +282,7 @@ class MCP23017:
 
         self._device_lock = asyncio.Lock()
         self._run = False
+        self._task = None
         self._cache = {
             "IODIR": (self[IODIRB] << 8) + self[IODIRA],
             "GPPU": (self[GPPUB] << 8) + self[GPPUA],
@@ -365,56 +366,55 @@ class MCP23017:
 
     def get_pin_value(self, pin):
         """Get MCP23017 GPIO[{pin}] value."""
-        with self:
+        with self._bus as bus:
             return self._get_register_value("GPIO", pin)
 
     def set_pin_value(self, pin, value):
         """Set MCP23017 GPIO[{pin}] to {value}."""
-        with self:
+        with self._bus as bus:
             self._set_register_value("OLAT", pin, value)
 
     def set_input(self, pin, is_input):
         """Set MCP23017 GPIO[{pin}] as input."""
-        with self:
+        with self._bus as bus:
             self._set_register_value("IODIR", pin, is_input)
 
     def set_pullup(self, pin, is_pullup):
         """Set MCP23017 GPIO[{pin}] as pullup."""
-        with self:
+        with self._bus as bus:
             self._set_register_value("GPPU", pin, is_pullup)
 
     def register_entity(self, entity):
         """Register entity to this device instance."""
-        with self:
-            self._entities[entity.pin] = entity
+        self._entities[entity.pin] = entity
 
-            # Trigger a callback to update initial state
-            self._update_bitmap |= (1 << entity.pin) & 0xFFFF
+        # Trigger a callback to update initial state
+        self._update_bitmap |= (1 << entity.pin) & 0xFFFF
 
-            _LOGGER.info(
-                "%s(pin %d:'%s') attached to %s",
-                type(entity).__name__,
-                entity.pin,
-                entity.name,
-                self.unique_id,
-            )
+        _LOGGER.info(
+            "%s(pin %d:'%s') attached to %s",
+            type(entity).__name__,
+            entity.pin,
+            entity.name,
+            self.unique_id,
+        )
 
         return True
 
     def unregister_entity(self, pin_number):
         """Unregister entity from the device."""
-        with self:
-            entity = self._entities[pin_number]
-            entity.unsubscribe_update_listener()
-            self._entities[pin_number] = None
 
-            _LOGGER.info(
-                "%s(pin %d:'%s') removed from %s",
-                type(entity).__name__,
-                entity.pin,
-                entity.name,
-                self.unique_id,
-            )
+        entity = self._entities[pin_number]
+        entity.unsubscribe_update_listener()
+        self._entities[pin_number] = None
+
+        _LOGGER.info(
+            "%s(pin %d:'%s') removed from %s",
+            type(entity).__name__,
+            entity.pin,
+            entity.name,
+            self.unique_id,
+        )
     
     def start_polling(self):
         """Start async polling task."""
@@ -434,7 +434,7 @@ class MCP23017:
                 await self._task
             except asyncio.CancelledError:
                 pass
-            self._task = None    
+            self._task = None
 
     async def _poll_loop(self):
         """Poll all ports once and call corresponding callback if a change is detected."""
@@ -456,9 +456,7 @@ class MCP23017:
                         input_state = input_state & 0x00FF | (self[GPIOB] << 8)
 
                     # Check pin values that changed and update input cache
-                    self._update_bitmap = self._update_bitmap | (
-                        input_state ^ self._cache["GPIO"]
-                    )
+                    self._update_bitmap |= (input_state ^ self._cache["GPIO"])
                     self._cache["GPIO"] = input_state
                     # Call callback functions only for pin that changed
                     for pin in range(16):
