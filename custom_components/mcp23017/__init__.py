@@ -131,6 +131,8 @@ async def async_setup(hass, config):
         _LOGGER.warning(
             "scan_rate too low, set to minimum of 0.1 second"
         )
+    else:
+        _LOGGER.info("MCP23017 scan_rate set to %.1f second(s)", SCAN_RATE)
 
     # Callback function to start polling when HA starts
     def start_polling(event):
