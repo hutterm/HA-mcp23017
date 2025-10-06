@@ -131,10 +131,10 @@ async def async_setup(hass, config):
     hass.data.setdefault(DOMAIN, {})
 
     SCAN_RATE = config.get(DOMAIN, {}).get("scan_rate", DEFAULT_SCAN_RATE)
-    if SCAN_RATE < 0.1:
-        SCAN_RATE = 0.1
+    if SCAN_RATE < 0.01:
+        SCAN_RATE = 0.01
         _LOGGER.warning(
-            "scan_rate too low, set to minimum of 0.1 second"
+            "scan_rate too low, set to minimum of 0.01 second"
         )
     else:
         _LOGGER.info("MCP23017 scan_rate set to %.1f second(s)", SCAN_RATE)
