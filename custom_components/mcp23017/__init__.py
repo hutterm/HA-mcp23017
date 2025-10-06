@@ -121,6 +121,8 @@ async def async_migrate_entry(hass, config_entry):
 
 async def async_setup(hass, config):
     """Set up the component."""
+    
+    global SCAN_RATE
 
     # hass.data[DOMAIN] stores one entry for each MCP23017 instance using i2c address as a key
     hass.data.setdefault(DOMAIN, {})
