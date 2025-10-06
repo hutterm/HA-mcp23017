@@ -23,28 +23,32 @@ from .const import (
 )
 
 # MCP23017 Register Map (IOCON.BANK = 1, MCP23008-compatible)
-IODIRA = 0x00
-IODIRB = 0x10
-IPOLA = 0x01
-IPOLB = 0x11
-GPINTENA = 0x02
-GPINTENB = 0x12
-DEFVALA = 0x03
-DEFVALB = 0x13
-INTCONA = 0x04
-INTCONB = 0x14
-IOCONA = 0x05
-IOCONB = 0x15
-GPPUA = 0x06
-GPPUB = 0x16
-INTFA = 0x07
-INTFB = 0x17
-INTCAPA = 0x08
-INTCAPB = 0x18
-GPIOA = 0x09
-GPIOB = 0x19
-OLATA = 0x0a
-OLATB = 0x1a
+
+REGISTER_MAP = {
+    "IODIRA": 0x00,
+    "IODIRB": 0x10,
+    "IPOLA": 0x01,
+    "IPOLB": 0x11,
+    "GPINTENA": 0x02,
+    "GPINTENB": 0x12,
+    "DEFVALA": 0x03,
+    "DEFVALB": 0x13,
+    "INTCONA": 0x04,
+    "INTCONB": 0x14,
+    "IOCONA": 0x05,
+    "IOCONB": 0x15,
+    "GPPUA": 0x06,
+    "GPPUB": 0x16,
+    "INTFA": 0x07,
+    "INTFB": 0x17,
+    "INTCAPA": 0x08,
+    "INTCAPB": 0x18,
+    "GPIOA": 0x09,
+    "GPIOB": 0x19,
+    "OLATA": 0x0a,
+    "OLATB": 0x1a,
+}
+
 
 # Register address used to toggle IOCON.BANK to 1 (only mapped when BANK is 0)
 IOCON_REMAP = 0x0b
@@ -285,10 +289,10 @@ class MCP23017:
         self._run = False
         self._task = None
         self._cache = {
-            "IODIR": (self[IODIRB] << 8) + self[IODIRA],
-            "GPPU": (self[GPPUB] << 8) + self[GPPUA],
-            "GPIO": (self[GPIOB] << 8) + self[GPIOA],
-            "OLAT": (self[OLATB] << 8) + self[OLATA],
+            "IODIR": (self[REGISTER_MAP["IODIRB"]] << 8) + self[REGISTER_MAP["IODIRA"]],
+            "GPPU": (self[REGISTER_MAP["GPPUB"]] << 8) + self[REGISTER_MAP["GPPUA"]],
+            "GPIO": (self[REGISTER_MAP["GPIOB"]] << 8) + self[REGISTER_MAP["GPIOA"]],
+            "OLAT": (self[REGISTER_MAP["OLATB"]] << 8) + self[REGISTER_MAP["OLATA"]],
         }
         self._entities = [None for i in range(16)]
         self._update_bitmap = 0
@@ -315,28 +319,32 @@ class MCP23017:
     def _get_register_value(self, register, bit):
         """Get MCP23017 {bit} of {register}."""
         if bit < 8:
-            value = self[globals()[register + "A"]] & 0xFF
-            self._cache[register] = self._cache[register] & 0xFF00 | value
+            reg = REGISTER_MAP[f"{register}A"]
+            value = self[reg] & 0xFF
+            self._cache[register] = (self._cache[register] & 0xFF00) | value
         else:
-            value = self[globals()[register + "B"]] & 0xFF
-            self._cache[register] = self._cache[register] & 0x00FF | (value << 8)
-
+            reg = REGISTER_MAP[f"{register}B"]
+            value = self[reg] & 0xFF
+            self._cache[register] = (self._cache[register] & 0x00FF) | (value << 8)
         return bool(self._cache[register] & (1 << bit))
+
 
     def _set_register_value(self, register, bit, value):
         """Set MCP23017 {bit} of {register} to {value}."""
-        # Update cache
         cache_old = self._cache[register]
         if value:
             self._cache[register] |= (1 << bit) & 0xFFFF
         else:
             self._cache[register] &= ~(1 << bit) & 0xFFFF
-        # Update device register only if required (minimize # of I2C  transactions)
+
         if cache_old != self._cache[register]:
             if bit < 8:
-                self[globals()[register + "A"]] = self._cache[register] & 0xFF
+                reg = REGISTER_MAP[f"{register}A"]
+                self[reg] = self._cache[register] & 0xFF
             else:
-                self[globals()[register + "B"]] = (self._cache[register] >> 8) & 0xFF
+                reg = REGISTER_MAP[f"{register}B"]
+                self[reg] = (self._cache[register] >> 8) & 0xFF
+
 
     @property
     def address(self):
@@ -450,11 +458,11 @@ class MCP23017:
                     if any(
                         hasattr(entity, "push_update") for entity in self._entities[0:8]
                     ):
-                        input_state = input_state & 0xFF00 | self[GPIOA]
+                        input_state = input_state & 0xFF00 | self[REGISTER_MAP["GPIOA"]]
                     if any(
                         hasattr(entity, "push_update") for entity in self._entities[8:16]
                     ):
-                        input_state = input_state & 0x00FF | (self[GPIOB] << 8)
+                        input_state = input_state & 0x00FF | (self[REGISTER_MAP["GPIOB"]] << 8)
 
                     # Check pin values that changed and update input cache
                     self._update_bitmap |= (input_state ^ self._cache["GPIO"])
