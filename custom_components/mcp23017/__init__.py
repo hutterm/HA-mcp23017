@@ -313,9 +313,7 @@ class MCP23017:
 
     def __getitem__(self, register):
         """Get value of MCP23017 {register}."""
-        _LOGGER.debug("Get %s %s value", self.unique_id, register)
         data = self._bus.read_byte_data(self._address, register)
-        _LOGGER.debug("Got %s %s value: %d", self.unique_id, register, data)
         return data
 
     def _get_register_value(self, register, bit):
@@ -378,23 +376,19 @@ class MCP23017:
     def get_pin_value(self, pin):
         """Get MCP23017 GPIO[{pin}] value."""
         _LOGGER.debug("Get %s GPIO[%d] value", self.unique_id, pin)
-        with self._bus as bus:
-            return self._get_register_value("GPIO", pin)
+        return self._get_register_value("GPIO", pin)
 
     def set_pin_value(self, pin, value):
         """Set MCP23017 GPIO[{pin}] to {value}."""
-        with self._bus as bus:
-            self._set_register_value("OLAT", pin, value)
+        self._set_register_value("OLAT", pin, value)
 
     def set_input(self, pin, is_input):
         """Set MCP23017 GPIO[{pin}] as input."""
-        with self._bus as bus:
-            self._set_register_value("IODIR", pin, is_input)
+        self._set_register_value("IODIR", pin, is_input)
 
     def set_pullup(self, pin, is_pullup):
         """Set MCP23017 GPIO[{pin}] as pullup."""
-        with self._bus as bus:
-            self._set_register_value("GPPU", pin, is_pullup)
+        self._set_register_value("GPPU", pin, is_pullup)
 
     def register_entity(self, entity):
         """Register entity to this device instance."""
