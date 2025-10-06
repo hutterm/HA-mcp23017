@@ -60,6 +60,9 @@ PLATFORMS = ["binary_sensor", "switch"]
 MCP23017_DATA_LOCK = asyncio.Lock()
 SCAN_RATE = DEFAULT_SCAN_RATE
 
+I2C_LOCKS_KEY = "i2c_locks"
+
+
 class SetupEntryStatus:
     """Class registering the number of outstanding async_setup_entry calls."""
     def __init__(self):
@@ -121,8 +124,8 @@ async def async_migrate_entry(hass, config_entry):
 
 async def async_setup(hass, config):
     """Set up the component."""
-    
-    global SCAN_RATE
+
+    global SCAN_RATE, I2C_LOCKS_KEY
 
     # hass.data[DOMAIN] stores one entry for each MCP23017 instance using i2c address as a key
     hass.data.setdefault(DOMAIN, {})
@@ -135,6 +138,12 @@ async def async_setup(hass, config):
         )
     else:
         _LOGGER.info("MCP23017 scan_rate set to %.1f second(s)", SCAN_RATE)
+    
+    I2C_LOCKS_KEY = config.get(DOMAIN, {}).get("i2c_locks", "i2c_locks")
+
+    if I2C_LOCKS_KEY not in hass.data:
+        hass.data[I2C_LOCKS_KEY] = {}
+
 
     # Callback function to start polling when HA starts
     def start_polling(event):
@@ -289,7 +298,12 @@ class MCP23017:
         #   IOCON_REMAP address is not mapped and write is ignored
         self[IOCON_REMAP] = self[IOCON_REMAP] | 0x80
 
-        self._device_lock = asyncio.Lock()
+        
+        locks = hass.data[I2C_LOCKS_KEY]
+        if bus not in locks:
+            locks[bus] = asyncio.Lock()
+        self._device_lock = locks[bus]
+
         self._run = False
         self._task = None
         self._cache = {
