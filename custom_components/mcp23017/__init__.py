@@ -313,7 +313,9 @@ class MCP23017:
 
     def __getitem__(self, register):
         """Get value of MCP23017 {register}."""
+        _LOGGER.debug("Get %s %s value", self.unique_id, register)
         data = self._bus.read_byte_data(self._address, register)
+        _LOGGER.debug("Got %s %s value: %d", self.unique_id, register, data)
         return data
 
     def _get_register_value(self, register, bit):
@@ -375,6 +377,7 @@ class MCP23017:
 
     def get_pin_value(self, pin):
         """Get MCP23017 GPIO[{pin}] value."""
+        _LOGGER.debug("Get %s GPIO[%d] value", self.unique_id, pin)
         with self._bus as bus:
             return self._get_register_value("GPIO", pin)
 
