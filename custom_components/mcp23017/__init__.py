@@ -54,6 +54,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["binary_sensor", "switch"]
 
 MCP23017_DATA_LOCK = asyncio.Lock()
+SCAN_RATE = DEFAULT_SCAN_RATE
 
 class SetupEntryStatus:
     """Class registering the number of outstanding async_setup_entry calls."""
@@ -119,6 +120,13 @@ async def async_setup(hass, config):
 
     # hass.data[DOMAIN] stores one entry for each MCP23017 instance using i2c address as a key
     hass.data.setdefault(DOMAIN, {})
+
+    SCAN_RATE = config.get(DOMAIN, {}).get("scan_rate", DEFAULT_SCAN_RATE)
+    if SCAN_RATE < 0.1:
+        SCAN_RATE = 0.1
+        _LOGGER.warning(
+            "scan_rate too low, set to minimum of 0.1 second"
+        )
 
     # Callback function to start polling when HA starts
     def start_polling(event):
@@ -461,7 +469,7 @@ class MCP23017:
                         input_state >>= 1
                         self._update_bitmap >>= 1
 
-                await asyncio.sleep(DEFAULT_SCAN_RATE)
+                await asyncio.sleep(SCAN_RATE)
         except asyncio.CancelledError:
             _LOGGER.info("%s polling task cancelled", self.unique_id)
         finally:
