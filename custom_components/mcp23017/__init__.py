@@ -3,8 +3,6 @@
 import asyncio
 import functools
 import logging
-import threading
-import time
 
 import smbus2
 
@@ -125,14 +123,12 @@ async def async_setup(hass, config):
     # Callback function to start polling when HA starts
     def start_polling(event):
         for component in hass.data[DOMAIN].values():
-            if not component.is_alive():
-                component.start_polling()
+            component.start_polling()
 
     # Callback function to stop polling when HA stops
-    def stop_polling(event):
+    async def stop_polling(event):
         for component in hass.data[DOMAIN].values():
-            if component.is_alive():
-                component.stop_polling()
+            await component.stop_polling()
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, start_polling)
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_polling)
@@ -178,8 +174,7 @@ async def async_unload_entry(hass, config_entry):
 
             # Free component if not linked to any entities
             if component.has_no_entities:
-                if component.is_alive():
-                    await hass.async_add_executor_job(component.stop_polling)
+                await component.stop_polling()
                 hass.data[DOMAIN].pop(domain_id)
 
                 _LOGGER.info("%s component destroyed", component.unique_id)
@@ -252,7 +247,7 @@ def i2c_device_exist(bus, address):
     return True
 
 
-class MCP23017(threading.Thread):
+class MCP23017:
     """MCP23017 device driver."""
 
     def __init__(self, bus, address):
@@ -277,7 +272,7 @@ class MCP23017(threading.Thread):
         #   IOCON_REMAP address is not mapped and write is ignored
         self[IOCON_REMAP] = self[IOCON_REMAP] | 0x80
 
-        self._device_lock = threading.Lock()
+        self._device_lock = asyncio.Lock()
         self._run = False
         self._cache = {
             "IODIR": (self[IODIRB] << 8) + self[IODIRA],
@@ -288,17 +283,13 @@ class MCP23017(threading.Thread):
         self._entities = [None for i in range(16)]
         self._update_bitmap = 0
 
-        threading.Thread.__init__(self, name=self.unique_id)
-
         _LOGGER.info("%s device created", self.unique_id)
-
-    def __enter__(self):
-        """Lock access to device (with statement)."""
-        self._device_lock.acquire()
+    
+    async def __aenter__(self):
+        await self._device_lock.acquire()
         return self
 
-    def __exit__(self, exception_type, exception_value, exception_traceback):
-        """Unlock access to device (with statement)."""
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
         self._device_lock.release()
         return False
 
@@ -416,51 +407,62 @@ class MCP23017(threading.Thread):
                 entity.name,
                 self.unique_id,
             )
-
-    # -- Threading components
-
+    
     def start_polling(self):
-        """Start polling thread."""
+        """Start async polling task."""
+        if self._run:
+            return
         self._run = True
-        self.start()
+        self._task = asyncio.create_task(self._poll_loop())
 
-    def stop_polling(self):
-        """Stop polling thread."""
+    async def stop_polling(self):
+        """Stop async polling task."""
+        if not self._run:
+            return
         self._run = False
-        self.join()
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None    
 
-    def run(self):
+    async def _poll_loop(self):
         """Poll all ports once and call corresponding callback if a change is detected."""
 
-        _LOGGER.info("%s start polling thread", self.unique_id)
+        _LOGGER.info("%s start polling task", self.unique_id)
 
-        while self._run:
-            with self:
-                # Read pin values for bank A and B from device only if there are associated callbacks (minimize # of I2C  transactions)
-                input_state = self._cache["GPIO"]
-                if any(
-                    hasattr(entity, "push_update") for entity in self._entities[0:8]
-                ):
-                    input_state = input_state & 0xFF00 | self[GPIOA]
-                if any(
-                    hasattr(entity, "push_update") for entity in self._entities[8:16]
-                ):
-                    input_state = input_state & 0x00FF | (self[GPIOB] << 8)
-
-                # Check pin values that changed and update input cache
-                self._update_bitmap = self._update_bitmap | (
-                    input_state ^ self._cache["GPIO"]
-                )
-                self._cache["GPIO"] = input_state
-                # Call callback functions only for pin that changed
-                for pin in range(16):
-                    if (self._update_bitmap & 0x1) and hasattr(
-                        self._entities[pin], "push_update"
+        try:
+            while self._run:
+                async with self._device_lock:
+                    # Read pin values for bank A and B from device only if there are associated callbacks (minimize # of I2C  transactions)
+                    input_state = self._cache["GPIO"]
+                    if any(
+                        hasattr(entity, "push_update") for entity in self._entities[0:8]
                     ):
-                        self._entities[pin].push_update(bool(input_state & 0x1))
-                    input_state >>= 1
-                    self._update_bitmap >>= 1
+                        input_state = input_state & 0xFF00 | self[GPIOA]
+                    if any(
+                        hasattr(entity, "push_update") for entity in self._entities[8:16]
+                    ):
+                        input_state = input_state & 0x00FF | (self[GPIOB] << 8)
 
-            time.sleep(DEFAULT_SCAN_RATE)
+                    # Check pin values that changed and update input cache
+                    self._update_bitmap = self._update_bitmap | (
+                        input_state ^ self._cache["GPIO"]
+                    )
+                    self._cache["GPIO"] = input_state
+                    # Call callback functions only for pin that changed
+                    for pin in range(16):
+                        if (self._update_bitmap & 0x1) and hasattr(
+                            self._entities[pin], "push_update"
+                        ):
+                            self._entities[pin].push_update(bool(input_state & 0x1))
+                        input_state >>= 1
+                        self._update_bitmap >>= 1
 
-        _LOGGER.info("%s stop polling thread", self.unique_id)
+                await asyncio.sleep(DEFAULT_SCAN_RATE)
+        except asyncio.CancelledError:
+            _LOGGER.info("%s polling task cancelled", self.unique_id)
+        finally:
+            _LOGGER.info("%s stop polling task", self.unique_id)
