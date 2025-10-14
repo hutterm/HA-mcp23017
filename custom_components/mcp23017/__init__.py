@@ -284,7 +284,7 @@ class MCP23017:
         locks = hass.data[I2C_LOCKS_KEY]
         if bus not in locks:
             locks[bus] = asyncio.Lock()
-            _LOGGER.warning("PCA9685 Created new lock for I2C bus %s", bus)
+            _LOGGER.warning("MCP23017 Created new lock for I2C bus %s", bus)
         self._device_lock = locks[bus]
 
         # Check device presence
