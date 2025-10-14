@@ -281,6 +281,12 @@ class MCP23017:
         self._busNumber = bus
         self.hass = hass
 
+        locks = hass.data[I2C_LOCKS_KEY]
+        if bus not in locks:
+            locks[bus] = asyncio.Lock()
+            _LOGGER.warning("PCA9685 Created new lock for I2C bus %s", bus)
+        self._device_lock = locks[bus]
+
         # Check device presence
         try:
             self._bus = smbus2.SMBus(self._busNumber)
@@ -299,10 +305,6 @@ class MCP23017:
         self[IOCON_REMAP] = self[IOCON_REMAP] | 0x80
 
         
-        locks = hass.data[I2C_LOCKS_KEY]
-        if bus not in locks:
-            locks[bus] = asyncio.Lock()
-        self._device_lock = locks[bus]
 
         self._run = False
         self._task = None
