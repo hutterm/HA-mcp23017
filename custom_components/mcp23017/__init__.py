@@ -18,9 +18,11 @@ from .const import (
     CONF_I2C_ADDRESS,
     CONF_I2C_BUS,
     DEFAULT_I2C_BUS,
+    DEFAULT_I2C_LOCKS_KEY,
     DEFAULT_SCAN_RATE,
     DOMAIN,
 )
+from .i2c_lock import get_i2c_bus_lock
 
 # MCP23017 Register Map (IOCON.BANK = 1, MCP23008-compatible)
 
@@ -60,7 +62,7 @@ PLATFORMS = ["binary_sensor", "switch"]
 MCP23017_DATA_LOCK = asyncio.Lock()
 SCAN_RATE = DEFAULT_SCAN_RATE
 
-I2C_LOCKS_KEY = "i2c_locks"
+I2C_LOCKS_KEY = DEFAULT_I2C_LOCKS_KEY
 
 
 class SetupEntryStatus:
@@ -139,7 +141,7 @@ async def async_setup(hass, config):
     else:
         _LOGGER.info("MCP23017 scan_rate set to %.1f second(s)", SCAN_RATE)
     
-    I2C_LOCKS_KEY = config.get(DOMAIN, {}).get("i2c_locks", "i2c_locks")
+    I2C_LOCKS_KEY = config.get(DOMAIN, {}).get("i2c_locks", DEFAULT_I2C_LOCKS_KEY)
 
     if I2C_LOCKS_KEY not in hass.data:
         hass.data[I2C_LOCKS_KEY] = {}
@@ -266,7 +268,8 @@ async def async_get_or_create(hass, config_entry, entity):
 
 def i2c_device_exist(bus, address):
     try:
-        smbus2.SMBus(bus).read_byte(address)
+        with smbus2.SMBus(bus) as i2c_bus:
+            i2c_bus.read_byte(address)
     except (FileNotFoundError, OSError):
         return False
     return True
@@ -281,11 +284,9 @@ class MCP23017:
         self._busNumber = bus
         self.hass = hass
 
-        locks = hass.data[I2C_LOCKS_KEY]
-        if bus not in locks:
-            locks[bus] = asyncio.Lock()
+        self._device_lock, created = get_i2c_bus_lock(hass, I2C_LOCKS_KEY, bus)
+        if created:
             _LOGGER.warning("MCP23017 Created new lock for I2C bus %s", bus)
-        self._device_lock = locks[bus]
 
         # Check device presence
         try:
@@ -326,6 +327,22 @@ class MCP23017:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         self._device_lock.release()
         return False
+
+    async def _async_i2c_call(self, func, *args):
+        async with self:
+            return await self.hass.async_add_executor_job(func, *args)
+
+    async def async_get_pin_value(self, pin):
+        return await self._async_i2c_call(self.get_pin_value, pin)
+
+    async def async_set_pin_value(self, pin, value):
+        await self._async_i2c_call(self.set_pin_value, pin, value)
+
+    async def async_set_input(self, pin, is_input):
+        await self._async_i2c_call(self.set_input, pin, is_input)
+
+    async def async_set_pullup(self, pin, is_pullup):
+        await self._async_i2c_call(self.set_pullup, pin, is_pullup)
 
     def __setitem__(self, register, value):
         """Set MCP23017 {register} to {value}."""
@@ -441,6 +458,30 @@ class MCP23017:
             entity.name,
             self.unique_id,
         )
+
+    def _poll_once_sync(self):
+        # Read pin values for bank A and B from device only if there are associated callbacks (minimize # of I2C transactions)
+        input_state = self._cache["GPIO"]
+        if any(
+            hasattr(entity, "push_update") for entity in self._entities[0:8]
+        ):
+            input_state = input_state & 0xFF00 | self[REGISTER_MAP["GPIOA"]]
+        if any(
+            hasattr(entity, "push_update") for entity in self._entities[8:16]
+        ):
+            input_state = input_state & 0x00FF | (self[REGISTER_MAP["GPIOB"]] << 8)
+
+        # Check pin values that changed and update input cache
+        self._update_bitmap |= (input_state ^ self._cache["GPIO"])
+        self._cache["GPIO"] = input_state
+        # Call callback functions only for pin that changed
+        for pin in range(16):
+            if (self._update_bitmap & 0x1) and hasattr(
+                self._entities[pin], "push_update"
+            ):
+                self._entities[pin].push_update(bool(input_state & 0x1))
+            input_state >>= 1
+            self._update_bitmap >>= 1
     
     def start_polling(self):
         """Start async polling task."""
@@ -469,30 +510,7 @@ class MCP23017:
 
         try:
             while self._run:
-                async with self._device_lock:
-                    # Read pin values for bank A and B from device only if there are associated callbacks (minimize # of I2C  transactions)
-                    input_state = self._cache["GPIO"]
-                    if any(
-                        hasattr(entity, "push_update") for entity in self._entities[0:8]
-                    ):
-                        input_state = input_state & 0xFF00 | self[REGISTER_MAP["GPIOA"]]
-                    if any(
-                        hasattr(entity, "push_update") for entity in self._entities[8:16]
-                    ):
-                        input_state = input_state & 0x00FF | (self[REGISTER_MAP["GPIOB"]] << 8)
-
-                    # Check pin values that changed and update input cache
-                    self._update_bitmap |= (input_state ^ self._cache["GPIO"])
-                    self._cache["GPIO"] = input_state
-                    # Call callback functions only for pin that changed
-                    for pin in range(16):
-                        if (self._update_bitmap & 0x1) and hasattr(
-                            self._entities[pin], "push_update"
-                        ):
-                            self._entities[pin].push_update(bool(input_state & 0x1))
-                        input_state >>= 1
-                        self._update_bitmap >>= 1
-
+                await self._async_i2c_call(self._poll_once_sync)
                 await asyncio.sleep(SCAN_RATE)
         except asyncio.CancelledError:
             _LOGGER.info("%s polling task cancelled", self.unique_id)

@@ -1,7 +1,6 @@
 """Platform for mcp23017-based switch."""
 
 import asyncio
-import functools
 import logging
 
 import voluptuous as vol
@@ -81,7 +80,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         hass, config_entry, switch_entity
     )
 
-    if await hass.async_add_executor_job(switch_entity.configure_device):
+    if await switch_entity.configure_device():
         async_add_entities([switch_entity])
 
 
@@ -220,10 +219,9 @@ class MCP23017Switch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Turn the device on."""
-        await self.hass.async_add_executor_job(
-            functools.partial(
-                self._device.set_pin_value, self._pin_number, not self._invert_logic
-            )
+        await self._device.async_set_pin_value(
+            self._pin_number,
+            not self._invert_logic,
         )
         self._state = True
         self.schedule_update_ha_state()
@@ -243,10 +241,9 @@ class MCP23017Switch(SwitchEntity):
 
     async def async_turn_off(self, **kwargs):
         """Turn the device off."""
-        await self.hass.async_add_executor_job(
-            functools.partial(
-                self._device.set_pin_value, self._pin_number, self._invert_logic
-            )
+        await self._device.async_set_pin_value(
+            self._pin_number,
+            self._invert_logic,
         )
         self._state = False
         self.schedule_update_ha_state()
@@ -262,12 +259,9 @@ class MCP23017Switch(SwitchEntity):
         self._invert_logic = config_entry.options[CONF_INVERT_LOGIC]
         self._momentary = config_entry.options[CONF_MOMENTARY]
         self._pulse_time = config_entry.options[CONF_PULSE_TIME]
-        await hass.async_add_executor_job(
-            functools.partial(
-                self._device.set_pin_value,
-                self._pin_number,
-                self._state ^ self._invert_logic,
-            )
+        await self._device.async_set_pin_value(
+            self._pin_number,
+            self._state ^ self._invert_logic,
         )
         self.async_schedule_update_ha_state()
 
@@ -277,20 +271,22 @@ class MCP23017Switch(SwitchEntity):
 
     # Sync functions executed outside of hass async loop.
 
-    def configure_device(self):
+    async def configure_device(self):
         """Attach instance to a device on the given address and configure it.
-
-        This function should be called from the thread pool as it contains blocking functions.
 
         Return True when successful.
         """
         if self.device:
             # Reset pin value when HW sync is not required
             if not self._hw_sync:
-                self._device.set_pin_value(self._pin_number, self._invert_logic)
+                await self._device.async_set_pin_value(
+                    self._pin_number,
+                    self._invert_logic,
+                )
             # Configure entity as output for a switch
-            self._device.set_input(self._pin_number, False)
-            self._state = self._device.get_pin_value(self._pin_number) ^ self._invert_logic
+            await self._device.async_set_input(self._pin_number, False)
+            value = await self._device.async_get_pin_value(self._pin_number)
+            self._state = value ^ self._invert_logic
 
             return True
 

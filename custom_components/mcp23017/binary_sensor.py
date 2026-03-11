@@ -1,7 +1,6 @@
 """Platform for mcp23017-based binary_sensor."""
 
 import asyncio
-import functools
 import logging
 
 import voluptuous as vol
@@ -81,7 +80,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         hass, config_entry, binary_sensor_entity
     )
 
-    if await hass.async_add_executor_job(binary_sensor_entity.configure_device):
+    if await binary_sensor_entity.configure_device():
         async_add_entities([binary_sensor_entity])
 
 
@@ -218,12 +217,9 @@ class MCP23017BinarySensor(BinarySensorEntity):
         self._invert_logic = config_entry.options[CONF_INVERT_LOGIC]
         if self._pull_mode != config_entry.options[CONF_PULL_MODE]:
             self._pull_mode = config_entry.options[CONF_PULL_MODE]
-            await hass.async_add_executor_job(
-                functools.partial(
-                    self._device.set_pullup,
-                    self._pin_number,
-                    bool(self._pull_mode == MODE_UP),
-                )
+            await self._device.async_set_pullup(
+                self._pin_number,
+                bool(self._pull_mode == MODE_UP),
             )
         self.async_schedule_update_ha_state()
 
@@ -237,17 +233,18 @@ class MCP23017BinarySensor(BinarySensorEntity):
         """Signal a state change and call the async counterpart."""
         asyncio.run_coroutine_threadsafe(self.async_push_update(state), self.hass.loop)
 
-    def configure_device(self):
+    async def configure_device(self):
         """Attach instance to a device on the given address and configure it.
-
-        This function should be called from the thread pool as it contains blocking functions.
 
         Return True when successful.
         """
         if self.device:
             # Configure entity as input for a binary sensor
-            self._device.set_input(self._pin_number, True)
-            self._device.set_pullup(self._pin_number, bool(self._pull_mode == MODE_UP))
+            await self._device.async_set_input(self._pin_number, True)
+            await self._device.async_set_pullup(
+                self._pin_number,
+                bool(self._pull_mode == MODE_UP),
+            )
 
             return True
 

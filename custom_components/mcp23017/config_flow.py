@@ -19,6 +19,7 @@ from .const import (
     CONF_PULSE_TIME,
     DEFAULT_I2C_ADDRESS,
     DEFAULT_I2C_BUS,
+    DEFAULT_I2C_LOCKS_KEY,
     DEFAULT_INVERT_LOGIC,
     DEFAULT_PULL_MODE,
     DEFAULT_HW_SYNC,
@@ -28,6 +29,7 @@ from .const import (
     MODE_DOWN,
     MODE_UP,
 )
+from .i2c_lock import get_i2c_bus_lock
 
 PLATFORMS = ["binary_sensor", "switch"]
 
@@ -89,7 +91,17 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     user_input[CONF_FLOW_PIN_NUMBER],
                 )
 
-            if i2c_device_exist(user_input[CONF_I2C_BUS], user_input[CONF_I2C_ADDRESS]):
+            bus = user_input[CONF_I2C_BUS]
+            address = user_input[CONF_I2C_ADDRESS]
+            lock, _ = get_i2c_bus_lock(self.hass, DEFAULT_I2C_LOCKS_KEY, bus)
+            async with lock:
+                exists = await self.hass.async_add_executor_job(
+                    i2c_device_exist,
+                    bus,
+                    address,
+                )
+
+            if exists:
                 return self.async_create_entry(
                     title=self._title(user_input),
                     data=user_input,
