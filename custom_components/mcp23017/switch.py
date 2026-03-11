@@ -1,167 +1,82 @@
-"""Platform for mcp23017-based switch."""
+"""Platform for MCP23017 switch entities."""
 
-import asyncio
 import logging
 
-import voluptuous as vol
-
-from . import async_get_or_create, setup_entry_status
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.device_registry import DeviceEntryType
-from homeassistant.config_entries import SOURCE_IMPORT
-from homeassistant.core import callback
 from homeassistant.helpers.event import async_call_later
-import homeassistant.helpers.config_validation as cv
 
+from . import async_get_component, get_entry_config
 from .const import (
-    CONF_FLOW_PIN_NAME,
-    CONF_FLOW_PIN_NUMBER,
-    CONF_FLOW_PLATFORM,
+    CONF_HW_SYNC,
     CONF_I2C_ADDRESS,
     CONF_I2C_BUS,
     CONF_INVERT_LOGIC,
-    CONF_HW_SYNC,
-    CONF_PINS,
     CONF_MOMENTARY,
+    CONF_PIN_CONFIGS,
+    CONF_PIN_MODE,
     CONF_PULSE_TIME,
-    DEFAULT_I2C_ADDRESS,
-    DEFAULT_I2C_BUS,
-    DEFAULT_INVERT_LOGIC,
-    DEFAULT_HW_SYNC,
-    DEFAULT_MOMENTARY,
-    DEFAULT_PULSE_TIME,
     DOMAIN,
+    PIN_MODE_OUTPUT,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-_SWITCHES_SCHEMA = vol.Schema({cv.positive_int: cv.string})
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_PINS): _SWITCHES_SCHEMA,
-        vol.Optional(CONF_INVERT_LOGIC, default=DEFAULT_INVERT_LOGIC): cv.boolean,
-        vol.Optional(CONF_HW_SYNC, default=DEFAULT_HW_SYNC): cv.boolean,
-        vol.Optional(CONF_I2C_ADDRESS, default=DEFAULT_I2C_ADDRESS): vol.Coerce(int),
-        vol.Optional(CONF_I2C_BUS, default=DEFAULT_I2C_BUS): vol.Coerce(int),
-    }
-)
-
-
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the MCP23017 for switch entities."""
-
-    # Wait for configflow to terminate before processing configuration.yaml
-    while setup_entry_status.busy():
-        await asyncio.sleep(0)
-
-    for pin_number, pin_name in config[CONF_PINS].items():
-        hass.async_create_task(
-            hass.config_entries.flow.async_init(
-                DOMAIN,
-                context={"source": SOURCE_IMPORT},
-                data={
-                    CONF_FLOW_PLATFORM: "switch",
-                    CONF_FLOW_PIN_NUMBER: pin_number,
-                    CONF_FLOW_PIN_NAME: pin_name,
-                    CONF_I2C_ADDRESS: config[CONF_I2C_ADDRESS],
-                    CONF_I2C_BUS: config[CONF_I2C_BUS],
-                    CONF_INVERT_LOGIC: config[CONF_INVERT_LOGIC],
-                    CONF_HW_SYNC: config[CONF_HW_SYNC],
-                },
-            )
-        )
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Set up a MCP23017 switch entry."""
+    """Set up MCP23017 switches from one chip entry."""
+    component = async_get_component(hass, config_entry)
+    if component is None:
+        _LOGGER.warning("No MCP23017 component found for entry %s", config_entry.entry_id)
+        return
 
-    switch_entity = MCP23017Switch(hass, config_entry)
-    switch_entity.device = await async_get_or_create(
-        hass, config_entry, switch_entity
-    )
+    entry_config = get_entry_config(config_entry)
+    entities: list[MCP23017Switch] = []
+    for pin_number, pin_config in enumerate(entry_config[CONF_PIN_CONFIGS]):
+        if pin_config[CONF_PIN_MODE] != PIN_MODE_OUTPUT:
+            continue
 
-    if await switch_entity.configure_device():
-        async_add_entities([switch_entity])
+        entity = MCP23017Switch(
+            component=component,
+            i2c_bus=entry_config[CONF_I2C_BUS],
+            i2c_address=entry_config[CONF_I2C_ADDRESS],
+            pin_number=pin_number,
+            pin_config=pin_config,
+        )
+        if await entity.configure_device():
+            entities.append(entity)
 
-
-async def async_unload_entry(hass, config_entry):
-    """Unload MCP23017 switch entry corresponding to config_entry."""
-    _LOGGER.warning("[FIXME] async_unload_entry not implemented")
+    if entities:
+        async_add_entities(entities)
 
 
 class MCP23017Switch(SwitchEntity):
-    """Represent a switch that uses MCP23017."""
+    """Represent one MCP23017 output pin."""
 
-    def __init__(self, hass, config_entry):
-        """Initialize the MCP23017 switch."""
-        self._device = None
-        self._state = None
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        component,
+        i2c_bus: int,
+        i2c_address: int,
+        pin_number: int,
+        pin_config: dict,
+    ) -> None:
+        """Initialize switch pin entity."""
+        self._device = component
+        self._i2c_address = i2c_address
+        self._i2c_bus = i2c_bus
+        self._pin_number = pin_number
+        self._state = False
         self._turn_off_timer_cancel = None
 
-        self._i2c_address = config_entry.data[CONF_I2C_ADDRESS]
-        self._i2c_bus = config_entry.data[CONF_I2C_BUS]
-        self._pin_name = config_entry.data[CONF_FLOW_PIN_NAME]
-        self._pin_number = config_entry.data[CONF_FLOW_PIN_NUMBER]
+        self._invert_logic = bool(pin_config[CONF_INVERT_LOGIC])
+        self._hw_sync = bool(pin_config[CONF_HW_SYNC])
+        self._momentary = bool(pin_config[CONF_MOMENTARY])
+        self._pulse_time = int(pin_config[CONF_PULSE_TIME])
 
-        # Get invert_logic from config flow (options) or import (data)
-        self._invert_logic = config_entry.options.get(
-            CONF_INVERT_LOGIC,
-            config_entry.data.get(
-                CONF_INVERT_LOGIC,
-                DEFAULT_INVERT_LOGIC
-            )
-        )
-
-        # Get hw_sync from config flow (options) or import (data)
-        self._hw_sync = config_entry.options.get(
-            CONF_HW_SYNC,
-            config_entry.data.get(
-                CONF_HW_SYNC,
-                DEFAULT_HW_SYNC
-            )
-        )
-        self._momentary = config_entry.options.get(
-            CONF_MOMENTARY,
-            config_entry.data.get(
-                CONF_MOMENTARY,
-                DEFAULT_MOMENTARY
-            )
-        )
-        self._pulse_time = config_entry.options.get(
-            CONF_PULSE_TIME,
-            config_entry.data.get(
-                CONF_PULSE_TIME,
-                DEFAULT_PULSE_TIME
-            )
-        )
-
-        # Create or update option values for switch platform
-        hass.config_entries.async_update_entry(
-            config_entry,
-            options={
-                CONF_INVERT_LOGIC: self._invert_logic,
-                CONF_HW_SYNC: self._hw_sync,
-                CONF_MOMENTARY: self._momentary,
-                CONF_PULSE_TIME: self._pulse_time,
-            },
-        )
-
-        # Subscribe to updates of config entry options
-        self._unsubscribe_update_listener = config_entry.add_update_listener(
-            self.async_config_update
-        )
-
-        _LOGGER.info(
-            "%s(pin %d:'%s') created",
-            type(self).__name__,
-            self._pin_number,
-            self._pin_name,
-        )
-
-    @property
-    def icon(self):
-        """Return device icon for this entity."""
-        return "mdi:chip"
+        self._attr_name = f"Pin {pin_number}"
 
     @property
     def unique_id(self):
@@ -169,9 +84,9 @@ class MCP23017Switch(SwitchEntity):
         return f"{self._device.unique_id}-0x{self._pin_number:02x}"
 
     @property
-    def name(self):
-        """Return the name of the switch."""
-        return self._pin_name
+    def icon(self):
+        """Return device icon for this entity."""
+        return "mdi:chip"
 
     @property
     def is_on(self):
@@ -184,20 +99,6 @@ class MCP23017Switch(SwitchEntity):
         return self._pin_number
 
     @property
-    def address(self):
-        """Return the i2c address of the entity."""
-        return self._i2c_address
-
-    @property
-    def bus(self):
-        """Return the i2c bus of the entity."""
-        return self._i2c_bus
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.device is not None
-    @property
     def device_info(self):
         """Device info."""
         return {
@@ -207,15 +108,21 @@ class MCP23017Switch(SwitchEntity):
             "entry_type": DeviceEntryType.SERVICE,
         }
 
-    @property
-    def device(self):
-        """Get device property."""
-        return self._device
+    async def async_added_to_hass(self) -> None:
+        """Handle entity added to Home Assistant."""
+        await super().async_added_to_hass()
+        await self.hass.async_add_executor_job(self._device.register_entity, self)
 
-    @device.setter
-    def device(self, value):
-        """Set device property."""
-        self._device = value
+    async def async_will_remove_from_hass(self) -> None:
+        """Handle entity removal from Home Assistant."""
+        if self._turn_off_timer_cancel:
+            self._turn_off_timer_cancel()
+            self._turn_off_timer_cancel = None
+        await super().async_will_remove_from_hass()
+        await self.hass.async_add_executor_job(
+            self._device.unregister_entity,
+            self._pin_number,
+        )
 
     async def async_turn_on(self, **kwargs):
         """Turn the device on."""
@@ -230,13 +137,13 @@ class MCP23017Switch(SwitchEntity):
             if self._turn_off_timer_cancel:
                 self._turn_off_timer_cancel()
 
-            async def turn_off_listener(now):
+            async def turn_off_listener(_now):
                 await self.async_turn_off()
 
             self._turn_off_timer_cancel = async_call_later(
                 self.hass,
                 self._pulse_time / 1000.0,
-                turn_off_listener
+                turn_off_listener,
             )
 
     async def async_turn_off(self, **kwargs):
@@ -248,46 +155,19 @@ class MCP23017Switch(SwitchEntity):
         self._state = False
         self.schedule_update_ha_state()
 
-        if self._momentary:
-            if self._turn_off_timer_cancel:
-                self._turn_off_timer_cancel()
-                self._turn_off_timer_cancel = None
-
-    @callback
-    async def async_config_update(self, hass, config_entry):
-        """Handle update from config entry options."""
-        self._invert_logic = config_entry.options[CONF_INVERT_LOGIC]
-        self._momentary = config_entry.options[CONF_MOMENTARY]
-        self._pulse_time = config_entry.options[CONF_PULSE_TIME]
-        await self._device.async_set_pin_value(
-            self._pin_number,
-            self._state ^ self._invert_logic,
-        )
-        self.async_schedule_update_ha_state()
-
-    def unsubscribe_update_listener(self):
-        """Remove listener from config entry options."""
-        self._unsubscribe_update_listener()
-
-    # Sync functions executed outside of hass async loop.
+        if self._momentary and self._turn_off_timer_cancel:
+            self._turn_off_timer_cancel()
+            self._turn_off_timer_cancel = None
 
     async def configure_device(self):
-        """Attach instance to a device on the given address and configure it.
+        """Configure pin as output switch."""
+        await self._device.async_set_input(self._pin_number, False)
+        if not self._hw_sync:
+            await self._device.async_set_pin_value(
+                self._pin_number,
+                self._invert_logic,
+            )
 
-        Return True when successful.
-        """
-        if self.device:
-            # Reset pin value when HW sync is not required
-            if not self._hw_sync:
-                await self._device.async_set_pin_value(
-                    self._pin_number,
-                    self._invert_logic,
-                )
-            # Configure entity as output for a switch
-            await self._device.async_set_input(self._pin_number, False)
-            value = await self._device.async_get_pin_value(self._pin_number)
-            self._state = value ^ self._invert_logic
-
-            return True
-
-        return False
+        value = await self._device.async_get_pin_value(self._pin_number)
+        self._state = bool(value ^ self._invert_logic)
+        return True
