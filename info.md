@@ -1,20 +1,23 @@
-# HA-mcp23017
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 
-MCP23008/MCP23017 implementation for Home Assistant (HA).
+[MCP23017 Custom Component](https://github.com/jpcornil-git/HA-mcp23017)
 
-## Highlights
+Custom component for the mcp23017 and mcp23008 i2c port expander ICs.
 
-- One configuration entry per chip (one I2C bus + one I2C address)
-- Bus dropdown from discovered `/dev/i2c-*` buses
-- Address dropdown with MCP23017 hex addresses (`0x20..0x27`)
-- Per-chip scan rate
-- Per-chip polling toggles for bank A (pins 0-7) and bank B (pins 8-15)
-- All 16 pins configured in UI with existing per-pin behavior options
-- Lock-safe async I2C behavior for shared-bus reliability
+## Highlights of what it does offer
 
-## Installation
+- **Async** implementation (more reactive and nicer to HA)
+- **Thread-safety** allows different entities to use the same component
+- **Config Flow** support (UI configuration) in addition to legacy configuration.yaml.
+- **Push iso pull model** for higher reactivity, e.g. 100ms polling for 'zero-delay' push button without loading HA.
+- Optimized i2c bus bandwidth utilisation
+  - Polling per device instead of per entity/8x gain, register cache to avoid read-modify-write/3xgain or rewriting the same register value)
+- Synchronization with the device state at startup, e.g. avoid output glitches when HA restart.
+- Compatible with **MCP23008** (8 pins) device.
+- Multiple **I2C** busses support.
 
-1. Install this custom integration with HACS or by copying `custom_components/mcp23017`.
-2. Restart Home Assistant.
-3. Add `MCP23017 Digital I/O Expander` from **Settings → Devices & Services**.
-4. Configure one chip entry and define all 16 pins in the flow.
+## Useful links
+
+- [Repository](https://github.com/jpcornil-git/HA-mcp23017)
+- [MCP23017 component](https://www.microchip.com/wwwproducts/en/mcp23017)
+- [RPi GPIO expander](https://github.com/jpcornil-git/RPiHat_GPIO_Expander)

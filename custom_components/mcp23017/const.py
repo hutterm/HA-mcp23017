@@ -3,17 +3,10 @@ DOMAIN = "mcp23017"
 
 MODE_UP = "UP"
 MODE_DOWN = "NONE"
-PIN_MODE_INPUT = "input"
-PIN_MODE_OUTPUT = "output"
-PIN_MODE_DISABLED = "disabled"
 
 CONF_I2C_ADDRESS = "i2c_address"
 CONF_I2C_BUS = "i2c_bus"
-CONF_SCAN_RATE = "scan_rate"
-CONF_POLL_BANK_A = "poll_bank_a"
-CONF_POLL_BANK_B = "poll_bank_b"
-CONF_PIN_CONFIGS = "pin_configs"
-CONF_PIN_MODE = "pin_mode"
+CONF_PINS = "pins"
 
 CONF_INVERT_LOGIC = "invert_logic"
 CONF_PULL_MODE = "pull_mode"
@@ -22,12 +15,14 @@ CONF_HW_SYNC = "hw_sync"
 CONF_MOMENTARY = "momentary"
 CONF_PULSE_TIME = "pulse_time"
 
+CONF_FLOW_PLATFORM = "platform"
+CONF_FLOW_PIN_NUMBER = "pin_number"
+CONF_FLOW_PIN_NAME = "pin_name"
+
 DEFAULT_SCAN_RATE = 0.1  # seconds
 DEFAULT_I2C_BUS = 1  # use /dev/i2c-{DEFAULT_I2C_BUS}
 DEFAULT_I2C_ADDRESS = 0x20
 DEFAULT_I2C_LOCKS_KEY = "i2c_locks"
-DEFAULT_POLL_BANK_A = True
-DEFAULT_POLL_BANK_B = True
 
 DEFAULT_INVERT_LOGIC = False
 DEFAULT_PULL_MODE = MODE_UP
@@ -35,4 +30,3 @@ DEFAULT_HW_SYNC = True
 
 DEFAULT_MOMENTARY = False
 DEFAULT_PULSE_TIME = 200
-TOTAL_PIN_COUNT = 16
