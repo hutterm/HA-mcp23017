@@ -17,10 +17,13 @@ from .const import (
     CONF_FLOW_PLATFORM,
     CONF_I2C_ADDRESS,
     CONF_I2C_BUS,
+    CONF_PULL_MODE,
     DEFAULT_I2C_BUS,
     DEFAULT_I2C_LOCKS_KEY,
     DEFAULT_SCAN_RATE,
     DOMAIN,
+    PULL_MODE_UP,
+    PULL_MODE_NONE,
 )
 from .i2c_lock import get_i2c_bus_lock
 
@@ -87,14 +90,28 @@ async def async_migrate_entry(hass, config_entry):
     """Migrate old config_entry and associated entities/devices."""
     _LOGGER.info("Migrating from version %s", config_entry.version)
 
-    if config_entry.version == 1:
-        # Migrate config_entry
-        data = {**config_entry.data}
+    if config_entry.version > 3:
+        # This means the user has downgraded from a future version
+        return False
+
+    data = {**config_entry.data}
+    options = {**config_entry.options}
+
+    # Migrate from version 1: add CONF_I2C_BUS
+    if not data.get(CONF_I2C_BUS):
         data[CONF_I2C_BUS] = DEFAULT_I2C_BUS
+    # Migrate from version <= 2: update CONF_PULL_MODE values
+    pull_mode = options.get(CONF_PULL_MODE)
+    if pull_mode:
+        options[CONF_PULL_MODE] = PULL_MODE_NONE if pull_mode == "NONE" else PULL_MODE_UP
+
+    if config_entry.version == 1:
+        # Migrate config_entry including unique_id and title to include bus number
         hass.config_entries.async_update_entry(
             config_entry,
-            version=2,
+            version=3,
             data=data,
+            options=options,
             unique_id= config_entry.unique_id.replace(f"{DOMAIN}.", f"{DOMAIN}.{DEFAULT_I2C_BUS}."),
             title = f"Bus: {DEFAULT_I2C_BUS:d}, address: {config_entry.title}"
         )
@@ -120,8 +137,17 @@ async def async_migrate_entry(hass, config_entry):
         _LOGGER.info("Migration to version %s successful", config_entry.version)
         return True
 
-    _LOGGER.warning("Migration from version %s not supported", config_entry.version)
-    return False
+    else:
+        # Migrate config_entry
+        hass.config_entries.async_update_entry(
+            config_entry,
+            version=3,
+            data=data,
+            options=options,
+        )
+
+    _LOGGER.info("Migration to version %s successful", config_entry.version)
+    return True
 
 
 async def async_setup(hass, config):
@@ -283,6 +309,7 @@ class MCP23017:
         self._address = address
         self._busNumber = bus
         self.hass = hass
+        self._i2c_fault_count = 0
 
         self._device_lock, created = get_i2c_bus_lock(hass, I2C_LOCKS_KEY, bus)
         if created:
@@ -300,21 +327,25 @@ class MCP23017:
             )
             raise ValueError(error) from error
 
-        # Change register map (IOCON.BANK = 1) to support/make it compatible with MCP23008
-        # - Note: when BANK is already set to 1, e.g. HA restart without power cycle,
-        #   IOCON_REMAP address is not mapped and write is ignored
-        self[IOCON_REMAP] = self[IOCON_REMAP] | 0x80
+        try:
+            # Change register map (IOCON.BANK = 1) to support/make it compatible with MCP23008
+            # - Note: when BANK is already set to 1, e.g. HA restart without power cycle,
+            #   IOCON_REMAP address is not mapped and write is ignored
+            self[IOCON_REMAP] = self[IOCON_REMAP] | 0x80
 
-        
+            self._cache = {
+                "IODIR": (self[REGISTER_MAP["IODIRB"]] << 8) + self[REGISTER_MAP["IODIRA"]],
+                "GPPU": (self[REGISTER_MAP["GPPUB"]] << 8) + self[REGISTER_MAP["GPPUA"]],
+                "GPIO": (self[REGISTER_MAP["GPIOB"]] << 8) + self[REGISTER_MAP["GPIOA"]],
+                "OLAT": (self[REGISTER_MAP["OLATB"]] << 8) + self[REGISTER_MAP["OLATA"]],
+            }
+        except TypeError as error:
+            raise ValueError(
+                f"I2C read failure during {self.unique_id} initialization"
+            ) from error
 
         self._run = False
         self._task = None
-        self._cache = {
-            "IODIR": (self[REGISTER_MAP["IODIRB"]] << 8) + self[REGISTER_MAP["IODIRA"]],
-            "GPPU": (self[REGISTER_MAP["GPPUB"]] << 8) + self[REGISTER_MAP["GPPUA"]],
-            "GPIO": (self[REGISTER_MAP["GPIOB"]] << 8) + self[REGISTER_MAP["GPIOA"]],
-            "OLAT": (self[REGISTER_MAP["OLATB"]] << 8) + self[REGISTER_MAP["OLATA"]],
-        }
         self._entities = [None for i in range(16)]
         self._update_bitmap = 0
 
@@ -346,23 +377,61 @@ class MCP23017:
 
     def __setitem__(self, register, value):
         """Set MCP23017 {register} to {value}."""
-        self._bus.write_byte_data(self._address, register, value)
+        try:
+            self._bus.write_byte_data(self._address, register, value)
+            if self._i2c_fault_count > 0:
+                _LOGGER.info(
+                    "I2C access recovered for %s after %d error(s)",
+                    self.unique_id,
+                    self._i2c_fault_count,
+                )
+                self._i2c_fault_count = 0
+        except (OSError) as error:
+            self._i2c_fault_count += 1
+            if self._i2c_fault_count == 1:
+                _LOGGER.error(
+                    "I2C write failure %s [0x%02x] <- 0x%02x (%s); suppressing until recovery",
+                    self.unique_id,
+                    register,
+                    value,
+                    error,
+                )
 
     def __getitem__(self, register):
         """Get value of MCP23017 {register}."""
-        data = self._bus.read_byte_data(self._address, register)
+        try:
+            data = self._bus.read_byte_data(self._address, register)
+            if self._i2c_fault_count > 0:
+                _LOGGER.info(
+                    "I2C access recovered for %s after %d error(s)",
+                    self.unique_id,
+                    self._i2c_fault_count,
+                )
+                self._i2c_fault_count = 0
+        except (OSError) as error:
+            data = None
+            self._i2c_fault_count += 1
+            if self._i2c_fault_count == 1:
+                _LOGGER.error(
+                    "I2C read failure %s [0x%02x] (%s); suppressing until recovery",
+                    self.unique_id,
+                    register,
+                    error,
+                )
         return data
 
     def _get_register_value(self, register, bit):
         """Get MCP23017 {bit} of {register}."""
         if bit < 8:
             reg = REGISTER_MAP[f"{register}A"]
-            value = self[reg] & 0xFF
-            self._cache[register] = (self._cache[register] & 0xFF00) | value
+            value = self[reg]
+            if value is not None:
+                self._cache[register] = (self._cache[register] & 0xFF00) | (value & 0xFF)
         else:
             reg = REGISTER_MAP[f"{register}B"]
-            value = self[reg] & 0xFF
-            self._cache[register] = (self._cache[register] & 0x00FF) | (value << 8)
+            value = self[reg]
+            if value is not None:
+                self._cache[register] = (self._cache[register] & 0x00FF) | ((value & 0xFF) << 8)
         return bool(self._cache[register] & (1 << bit))
 
 
@@ -465,11 +534,15 @@ class MCP23017:
         if any(
             hasattr(entity, "push_update") for entity in self._entities[0:8]
         ):
-            input_state = input_state & 0xFF00 | self[REGISTER_MAP["GPIOA"]]
+            value = self[REGISTER_MAP["GPIOA"]]
+            if value is not None:
+                input_state = (input_state & 0xFF00) | value
         if any(
             hasattr(entity, "push_update") for entity in self._entities[8:16]
         ):
-            input_state = input_state & 0x00FF | (self[REGISTER_MAP["GPIOB"]] << 8)
+            value = self[REGISTER_MAP["GPIOB"]]
+            if value is not None:
+                input_state = (input_state & 0x00FF) | (value << 8)
 
         # Check pin values that changed and update input cache
         self._update_bitmap |= (input_state ^ self._cache["GPIO"])

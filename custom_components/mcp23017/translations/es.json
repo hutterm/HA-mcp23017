@@ -1,0 +1,48 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Configurar nueva entidad",
+                "data": {
+                    "i2c_address": "Dirección I2C",
+                    "i2c_bus": "Bus I2C",
+                    "platform": "Plataforma",
+                    "pin_number": "Número de pin",
+                    "pin_name": "Nombre del pin"
+                }
+            }
+        },
+        "abort": {
+            "already_configured": "Ya existe un dispositivo con la misma configuración",
+            "invalid_i2c_address": "Dirección I2C inválida o dispositivo no encontrado"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Propiedades de la entidad",
+                "data": {
+                    "invert_logic": "Invertir lógica",
+                    "pull_mode": "Resistencia Pull-up",
+                    "hw_sync": "Sincronizar valor inicial desde hardware",
+                    "momentary": "Salida pulsada",
+                    "pulse_time": "Tiempo de pulso (ms)"
+                }
+            }
+        }
+    },
+    "selector": {
+        "platform_type": {
+            "options": {
+                "binary_sensor": "binary_sensor",
+                "switch": "switch"
+            }
+        },
+        "pull_mode": {
+            "options": {
+                "up": "Activada",
+                "none": "Desactivada"
+            }
+        }
+    }
+}

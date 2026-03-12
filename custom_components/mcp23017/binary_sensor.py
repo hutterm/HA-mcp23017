@@ -26,8 +26,8 @@ from .const import (
     DEFAULT_INVERT_LOGIC,
     DEFAULT_PULL_MODE,
     DOMAIN,
-    MODE_DOWN,
-    MODE_UP,
+    PULL_MODE_UP,
+    PULL_MODE_NONE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,8 +38,9 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_PINS): _PIN_SCHEMA,
         vol.Optional(CONF_INVERT_LOGIC, default=DEFAULT_INVERT_LOGIC): cv.boolean,
+        # We need to support MODE_UP and MODE_DOWN for legacy reasons
         vol.Optional(CONF_PULL_MODE, default=DEFAULT_PULL_MODE): vol.All(
-            vol.Upper, vol.In([MODE_UP, MODE_DOWN])
+            vol.Lower, vol.In([PULL_MODE_UP, PULL_MODE_NONE])
         ),
         vol.Optional(CONF_I2C_ADDRESS, default=DEFAULT_I2C_ADDRESS): vol.Coerce(int),
         vol.Optional(CONF_I2C_BUS, default=DEFAULT_I2C_BUS): vol.Coerce(int),
@@ -163,7 +164,7 @@ class MCP23017BinarySensor(BinarySensorEntity):
     @property
     def is_on(self):
         """Return the state of the entity."""
-        return self._state != self._invert_logic
+        return None if self._state is None else self._state != self._invert_logic
 
     @property
     def pin(self):
@@ -219,7 +220,7 @@ class MCP23017BinarySensor(BinarySensorEntity):
             self._pull_mode = config_entry.options[CONF_PULL_MODE]
             await self._device.async_set_pullup(
                 self._pin_number,
-                bool(self._pull_mode == MODE_UP),
+                bool(self._pull_mode == PULL_MODE_UP),
             )
         self.async_schedule_update_ha_state()
 
@@ -243,8 +244,8 @@ class MCP23017BinarySensor(BinarySensorEntity):
             await self._device.async_set_input(self._pin_number, True)
             await self._device.async_set_pullup(
                 self._pin_number,
-                bool(self._pull_mode == MODE_UP),
-            )
+                bool(self._pull_mode == PULL_MODE_UP),
+            )            
 
             return True
 

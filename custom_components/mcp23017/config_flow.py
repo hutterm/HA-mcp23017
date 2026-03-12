@@ -4,6 +4,11 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from . import i2c_device_exist
 from .const import (
@@ -26,8 +31,8 @@ from .const import (
     DEFAULT_MOMENTARY,
     DEFAULT_PULSE_TIME,
     DOMAIN,
-    MODE_DOWN,
-    MODE_UP,
+    PULL_MODE_NONE,
+    PULL_MODE_UP,
 )
 from .i2c_lock import get_i2c_bus_lock
 
@@ -37,7 +42,7 @@ PLATFORMS = ["binary_sensor", "switch"]
 class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """MCP23017 config flow."""
 
-    VERSION = 2
+    VERSION = 3
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
 
     def _title(self, user_input):
@@ -61,12 +66,12 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Add support for config flow options."""
-        return Mcp23017OptionsFlowHandler(config_entry)
+        return Mcp23017OptionsFlowHandler()
 
     async def async_step_import(self, user_input=None):
         """Create a new entity from configuration.yaml import."""
 
-        config_entry =  await self.async_set_unique_id(self._unique_id(user_input))
+        config_entry = await self.async_set_unique_id(self._unique_id(user_input))
         # Remove entry (from storage) matching the same unique id
         if config_entry:
             await self.hass.config_entries.async_remove(config_entry.entry_id)
@@ -75,7 +80,6 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             title=self._title(user_input),
             data=user_input,
         )
-
 
     async def async_step_user(self, user_input=None):
         """Create a new entity from UI."""
@@ -107,7 +111,7 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data=user_input,
                 )
             else:
-                return self.async_abort(reason="Invalid I2C address")
+                return self.async_abort(reason="invalid_i2c_address")
 
         return self.async_show_form(
             step_id="user",
@@ -125,7 +129,13 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_FLOW_PLATFORM,
                         default=PLATFORMS[0],
-                    ): vol.In(PLATFORMS),
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=PLATFORMS,
+                            mode=SelectSelectorMode.LIST,
+                            translation_key="platform_type",
+                        )
+                    ),
                     vol.Optional(CONF_FLOW_PIN_NAME): str,
                 }
             ),
@@ -135,15 +145,10 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class Mcp23017OptionsFlowHandler(config_entries.OptionsFlow):
     """MCP23017 config flow options."""
 
-    def __init__(self, config_entry):
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
     async def async_step_init(self, user_input=None):
         """Manage entity options."""
 
         if user_input is not None:
-
             return self.async_create_entry(title="", data=user_input)
 
         data_schema = vol.Schema(
@@ -164,7 +169,13 @@ class Mcp23017OptionsFlowHandler(config_entries.OptionsFlow):
                         default=self.config_entry.options.get(
                             CONF_PULL_MODE, DEFAULT_PULL_MODE
                         ),
-                    ): vol.In([MODE_UP, MODE_DOWN]),
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[PULL_MODE_UP, PULL_MODE_NONE],
+                            mode=SelectSelectorMode.LIST,
+                            translation_key="pull_mode",
+                        )
+                    ),
                 }
             )
 
