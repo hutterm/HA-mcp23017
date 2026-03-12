@@ -9,27 +9,24 @@
 
 ## High-level architecture
 - The integration lives in `custom_components/mcp23017` with domain `mcp23017`.
-- One config entry maps to one pin entity (`platform` + `i2c_bus` + `i2c_address` + `pin_number`), not one full chip.
-- `__init__.py` manages shared chip instances per bus/address via `hass.data[DOMAIN][domain_id]` and `async_get_or_create()`, so multiple pin entities reuse one MCP23017 device object.
+- One config entry maps to one physical chip (`i2c_bus` + `i2c_address`), and pin behavior is stored in a 16-item `pin_configs` list on that entry.
+- `__init__.py` binds one config entry to one MCP23017 device instance (`domain_id = "<bus>:0x<address>"`) and forwards platforms (`binary_sensor`, `switch`) from that single chip entry.
 - `MCP23017` in `__init__.py` handles register-level access, cache/state, one poll task per chip, and push updates to registered entities.
-- `config_flow.py` creates per-entity entries (UI/import) and validates bus/address reachability under the shared bus lock.
-- `Mcp23017OptionsFlowHandler` configures per-entity behavior:
-  - `binary_sensor`: `invert_logic`, `pull_mode`
-  - `switch`: `invert_logic`, `hw_sync`, `momentary`, `pulse_time`
-- `binary_sensor.py` and `switch.py` both support legacy `configuration.yaml` import via `async_setup_platform`, but runtime management is through config entries.
+- `config_flow.py` uses a chip-centric multi-step flow: general chip settings, then pin bank A (0-7), then pin bank B (8-15). The options flow mirrors this structure.
+- `binary_sensor.py` and `switch.py` create entities by iterating each chip entry’s `pin_configs` and selecting pins by `pin_mode`.
 - `i2c_lock.py` provides a shared per-bus async lock (stored in `hass.data`) with lock-wait telemetry, serializing SMBus access across chips on the same bus.
 
 ## Key codebase conventions
 - Keep unique ID formats stable:
-  - config-entry unique id: `mcp23017.<bus>.<address>.<pin>`
+  - config-entry unique id: `mcp23017.<bus>.<address>`
   - shared device id: `"<bus>:0x<address>"`
   - component unique id: `"mcp23017:<bus>:0x<address>"`
   - entity unique id suffix: `-0x<pin_hex>`
-- Reuse the shared device path (`async_get_or_create`, `MCP23017_DATA_LOCK`, `register_entity`/`unregister_entity`) instead of creating per-entity SMBus instances.
+- Keep pin configuration canonical with `default_pin_config()`, `normalize_pin_config()`, and `normalize_pin_configs()` in `__init__.py`.
 - Do SMBus access through `MCP23017` async wrappers (`_async_i2c_call`, `async_set_*`, `async_get_*`) so per-bus locking and executor offloading remain consistent.
-- Preserve pull-mode normalization as lowercase enum values (`"up"`, `"none"`). Migration in `async_migrate_entry()` maps legacy `"NONE"` to `"none"`.
-- Keep config/options and translation surfaces in sync when adding/changing options:
-  - `config_flow.py` schemas/selectors
+- Preserve pull-mode normalization as lowercase enum values (`"up"`, `"none"`). `normalize_pull_mode()` and `async_migrate_entry()` handle legacy uppercase values (`"UP"`, `"NONE"`).
+- Keep config/options and translation surfaces in sync when adding/changing pin options:
+  - `config_flow.py` schemas and bank input application
   - `custom_components/mcp23017/strings.json`
   - `custom_components/mcp23017/translations/en.json` (and other language files)
 - Keep lifecycle coupling intact:
