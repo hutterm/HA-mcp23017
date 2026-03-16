@@ -24,8 +24,9 @@ MCP23008/MCP23017 implementation for Home Assistant (HA)
     * Restart HA and clear browser cache (or restart a browser); latter is required for new config_flow to show up
 ### 2. Add your mcp23017 component(s) using either:
    - **config flow** (Configuration->Integrations->Add integration)
-     - Created entities will be visible in the **Integrations** tab and aggregated per device (i2c address) in the **Devices** tab.
-     - Entity parameters (invert logic, pull-up, ...) can be adapted individually by using the entity's **Options** button once created.
+     - First add one MCP23017 **chip** entry (I2C bus, I2C address, scan rate).
+     - Then add one **pin subentry** per GPIO pin from that chip entry.
+     - Pin parameters (invert logic, pull-up, hw_sync, momentary, ...) can be adapted by reconfiguring the pin subentry.
    - **configuration.yaml** see configuration example below.
      - Syntax is compatible with the now defunct core implementation (removed by https://github.com/home-assistant/core/pull/67281)
        - New **hw_sync** option allowing to either synchronize initial value of the switch with the hardware (true, default option) or to set it to a fixed value (false, value=invert_logic)

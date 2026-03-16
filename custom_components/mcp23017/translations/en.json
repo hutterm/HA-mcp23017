@@ -2,42 +2,85 @@
     "config": {
         "step": {
             "user": {
-                "title": "Define New Entity",
+                "title": "Define MCP23017 Chip",
                 "data": {
                     "i2c_address": "I2C address",
                     "i2c_bus": "I2C bus",
-                    "platform": "Platform",
-                    "pin_number": "Pin number",
-                    "pin_name": "Pin name"
+                    "scan_rate": "Scan rate (seconds)"
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigure MCP23017 Chip",
+                "data": {
+                    "i2c_address": "I2C address",
+                    "i2c_bus": "I2C bus",
+                    "scan_rate": "Scan rate (seconds)"
                 }
             }
         },
         "abort": {
             "already_configured": "A device with the same configuration already exists",
+            "invalid_i2c_address": "Invalid I2C address or device not found",
+            "reconfigure_successful": "Configuration was updated"
+        },
+        "error": {
             "invalid_i2c_address": "Invalid I2C address or device not found"
         }
     },
-    "options": {
-        "step": {
-            "init": {
-                "title": "Define Entity Properties",
-                "data": {
-                    "invert_logic": "Invert logic",
-                    "pull_mode": "Pull-up resistor",
-                    "hw_sync": "Initial value from hardware",
-                    "momentary": "Pulsed output",
-                    "pulse_time": "Pulse time (ms)"
+    "config_subentries": {
+        "pin": {
+            "title": "Pin",
+            "step": {
+                "user": {
+                    "title": "Add Pin",
+                    "menu_options": {
+                        "binary_sensor": "Binary sensor (input)",
+                        "switch": "Switch (output)"
+                    }
+                },
+                "binary_sensor": {
+                    "title": "Add Binary Sensor Pin",
+                    "data": {
+                        "pin_number": "Pin number",
+                        "pin_name": "Pin name",
+                        "invert_logic": "Invert logic",
+                        "pull_mode": "Pull-up resistor"
+                    }
+                },
+                "switch": {
+                    "title": "Add Switch Pin",
+                    "data": {
+                        "pin_number": "Pin number",
+                        "pin_name": "Pin name",
+                        "invert_logic": "Invert logic",
+                        "hw_sync": "Initial value from hardware",
+                        "momentary": "Pulsed output",
+                        "pulse_time": "Pulse time (ms)"
+                    }
+                },
+                "reconfigure": {
+                    "title": "Reconfigure Pin",
+                    "data": {
+                        "pin_number": "Pin number",
+                        "pin_name": "Pin name",
+                        "invert_logic": "Invert logic",
+                        "pull_mode": "Pull-up resistor",
+                        "hw_sync": "Initial value from hardware",
+                        "momentary": "Pulsed output",
+                        "pulse_time": "Pulse time (ms)"
+                    }
                 }
+            },
+            "abort": {
+                "all_pins_configured": "All pins are already configured",
+                "reconfigure_successful": "Pin configuration was updated"
+            },
+            "error": {
+                "pin_in_use": "Pin is already configured"
             }
         }
     },
     "selector": {
-        "platform_type": {
-            "options": {
-                "binary_sensor": "binary_sensor",
-                "switch": "switch"
-            }
-        },
         "pull_mode": {
             "options": {
                 "up": "Enabled",
