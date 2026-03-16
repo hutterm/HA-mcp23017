@@ -198,7 +198,15 @@ class MCP23017BinarySensor(BinarySensorEntity):
 
     def push_update(self, state):
         """Signal a state change and call the async counterpart."""
-        asyncio.run_coroutine_threadsafe(self.async_push_update(state), self.hass.loop)
+        hass = self.hass
+        if hass is None:
+            return
+
+        loop = hass.loop
+        if loop is None or loop.is_closed():
+            return
+
+        asyncio.run_coroutine_threadsafe(self.async_push_update(state), loop)
 
     async def configure_device(self):
         """Attach instance to a device on the given address and configure it."""

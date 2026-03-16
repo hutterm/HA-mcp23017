@@ -687,10 +687,9 @@ class MCP23017:
         self._cache["GPIO"] = input_state
         # Call callback functions only for pin that changed
         for pin in range(16):
-            if (self._update_bitmap & 0x1) and hasattr(
-                self._entities[pin], "push_update"
-            ):
-                self._entities[pin].push_update(bool(input_state & 0x1))
+            entity = self._entities[pin]
+            if (self._update_bitmap & 0x1) and entity and hasattr(entity, "push_update"):
+                entity.push_update(bool(input_state & 0x1))
             input_state >>= 1
             self._update_bitmap >>= 1
     
