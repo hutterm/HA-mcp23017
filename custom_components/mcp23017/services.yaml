@@ -41,8 +41,8 @@ run_pattern:
     steps:
       name: Steps
       description: >
-        Ordered list of {state, duration_ms} objects.
-        Example: [{"state":"on","duration_ms":200},{"state":"off","duration_ms":300}]
+        Ordered list where each item has one key: on or off.
+        Example: [{"on":200},{"off":300},{"on":400},{"off":1000}]
       required: true
       selector:
         object:

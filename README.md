@@ -87,7 +87,7 @@ You can start and stop named timed patterns on output pins through services:
 - `i2c_bus`, `i2c_address`
 - `name` (pattern name, scoped per chip)
 - `pins` (list of output pins)
-- `steps` (list of `{state, duration_ms}`)
+- `steps` (list of single-key items like `{on: 200}` / `{off: 300}`)
 - exactly one repeat mode:
   - `repeat_count`
   - `repeat_for_seconds`
@@ -102,14 +102,10 @@ data:
   name: demo_2_6
   pins: [2, 6]
   steps:
-    - state: "on"
-      duration_ms: 200
-    - state: "off"
-      duration_ms: 300
-    - state: "on"
-      duration_ms: 400
-    - state: "off"
-      duration_ms: 1000
+    - on: 200
+    - off: 300
+    - on: 400
+    - off: 1000
   repeat_count: 15
 ```
 

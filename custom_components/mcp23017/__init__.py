@@ -175,18 +175,35 @@ def _validate_pattern_name(value: str) -> str:
     return name
 
 
-PATTERN_STEP_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_PATTERN_STATE): vol.Any(
-            bool,
-            cv.string,
-            vol.All(vol.Coerce(int), vol.Range(min=0, max=1)),
-        ),
-        vol.Required(ATTR_PATTERN_DURATION_MS): vol.All(
-            vol.Coerce(int), vol.Range(min=1)
-        ),
-    }
-)
+def _normalize_pattern_step(step: dict[str, Any]) -> tuple[bool, int]:
+    if not isinstance(step, dict):
+        raise vol.Invalid("Each step must be an object")
+
+    if ATTR_PATTERN_STATE in step or ATTR_PATTERN_DURATION_MS in step:
+        if ATTR_PATTERN_STATE not in step or ATTR_PATTERN_DURATION_MS not in step:
+            raise vol.Invalid(
+                f"Legacy step format requires both {ATTR_PATTERN_STATE} and "
+                f"{ATTR_PATTERN_DURATION_MS}"
+            )
+        state = _normalize_pattern_state(step[ATTR_PATTERN_STATE])
+        duration_ms = vol.All(vol.Coerce(int), vol.Range(min=1))(
+            step[ATTR_PATTERN_DURATION_MS]
+        )
+        return (state, duration_ms)
+
+    if len(step) != 1:
+        raise vol.Invalid(
+            "Step must contain exactly one key, e.g. {'on': 200} or {'off': 300}"
+        )
+
+    state_key, duration_value = next(iter(step.items()))
+    state = _normalize_pattern_state(state_key)
+    duration_ms = vol.All(vol.Coerce(int), vol.Range(min=1))(duration_value)
+    return (state, duration_ms)
+
+
+def _normalize_pattern_steps(steps: list[dict[str, Any]]) -> list[tuple[bool, int]]:
+    return [_normalize_pattern_step(step) for step in steps]
 
 RUN_PATTERN_SERVICE_SCHEMA = vol.Schema(
     {
@@ -202,8 +219,9 @@ RUN_PATTERN_SERVICE_SCHEMA = vol.Schema(
         ),
         vol.Required(ATTR_PATTERN_STEPS): vol.All(
             cv.ensure_list,
-            [PATTERN_STEP_SCHEMA],
+            [dict],
             vol.Length(min=1),
+            _normalize_pattern_steps,
         ),
         vol.Optional(ATTR_PATTERN_REPEAT_COUNT): vol.All(
             vol.Coerce(int), vol.Range(min=1)
@@ -433,13 +451,7 @@ async def async_setup(hass, config):
         if len(pins) != len(requested_pins):
             raise HomeAssistantError("Pattern pin list contains duplicates")
 
-        steps = [
-            (
-                _normalize_pattern_state(step[ATTR_PATTERN_STATE]),
-                int(step[ATTR_PATTERN_DURATION_MS]),
-            )
-            for step in data[ATTR_PATTERN_STEPS]
-        ]
+        steps = data[ATTR_PATTERN_STEPS]
 
         i2c_bus = int(data[CONF_I2C_BUS])
         i2c_address = int(data[CONF_I2C_ADDRESS])
