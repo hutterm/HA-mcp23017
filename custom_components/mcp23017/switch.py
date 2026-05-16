@@ -8,8 +8,11 @@ import voluptuous as vol
 
 from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
 from homeassistant.config_entries import SOURCE_IMPORT
+from homeassistant.const import STATE_ON
 from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.restore_state import RestoreEntity
 import homeassistant.helpers.config_validation as cv
 
 from . import async_get_or_create, setup_entry_status
@@ -24,12 +27,14 @@ from .const import (
     CONF_MOMENTARY,
     CONF_PINS,
     CONF_PULSE_TIME,
+    CONF_READOUT_ENABLED,
     DEFAULT_I2C_ADDRESS,
     DEFAULT_I2C_BUS,
     DEFAULT_INVERT_LOGIC,
     DEFAULT_HW_SYNC,
     DEFAULT_MOMENTARY,
     DEFAULT_PULSE_TIME,
+    DEFAULT_READOUT_ENABLED,
     DOMAIN,
 )
 
@@ -76,6 +81,17 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up MCP23017 switch entities from chip subentries."""
     switches = []
+
+    readout_switch = MCP23017ReadoutSwitch(config_entry)
+    readout_switch.device = await async_get_or_create(
+        hass,
+        config_entry,
+        readout_switch,
+        register_entity=False,
+    )
+    if readout_switch.device is not None:
+        switches.append(readout_switch)
+
     sorted_subentries = sorted(
         (
             subentry
@@ -256,3 +272,93 @@ class MCP23017Switch(SwitchEntity):
             self._state = bool(value ^ self._invert_logic)
             return True
         return False
+
+
+class MCP23017ReadoutSwitch(SwitchEntity, RestoreEntity):
+    """Represent chip-level readout enable/disable switch."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_should_poll = False
+
+    def __init__(self, config_entry):
+        """Initialize chip readout switch."""
+        self._device = None
+        self._i2c_address = int(config_entry.data[CONF_I2C_ADDRESS])
+        self._i2c_bus = int(config_entry.data[CONF_I2C_BUS])
+        self._readout_enabled = bool(
+            config_entry.data.get(CONF_READOUT_ENABLED, DEFAULT_READOUT_ENABLED)
+        )
+        self._attr_unique_id = (
+            f"{DOMAIN}:{self._i2c_bus}:0x{self._i2c_address:02x}-{CONF_READOUT_ENABLED}"
+        )
+        self._attr_name = "Readout enabled"
+
+    async def async_added_to_hass(self):
+        """Restore last state and apply it to the device."""
+        await super().async_added_to_hass()
+
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._readout_enabled = last_state.state == STATE_ON
+
+        if self._device is not None:
+            self._device.readout_enabled = self._readout_enabled
+
+    @property
+    def icon(self):
+        """Return device icon for this entity."""
+        return "mdi:chip"
+
+    @property
+    def available(self):
+        """Return if entity is available."""
+        return self.device is not None
+
+    @property
+    def is_on(self):
+        """Return true if readout is enabled."""
+        return self._readout_enabled
+
+    @property
+    def address(self):
+        """Return the i2c address of the entity."""
+        return self._i2c_address
+
+    @property
+    def bus(self):
+        """Return the i2c bus of the entity."""
+        return self._i2c_bus
+
+    @property
+    def device_info(self):
+        """Device info."""
+        return {
+            "identifiers": {(DOMAIN, self._i2c_bus, self._i2c_address)},
+            "manufacturer": "Microchip",
+            "model": "MCP23017",
+            "entry_type": DeviceEntryType.SERVICE,
+        }
+
+    @property
+    def device(self):
+        """Get device property."""
+        return self._device
+
+    @device.setter
+    def device(self, value):
+        """Set device property."""
+        self._device = value
+
+    async def async_turn_on(self, **kwargs):
+        """Enable readout."""
+        self._readout_enabled = True
+        if self._device is not None:
+            self._device.readout_enabled = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs):
+        """Disable readout."""
+        self._readout_enabled = False
+        if self._device is not None:
+            self._device.readout_enabled = False
+        self.async_write_ha_state()

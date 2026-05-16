@@ -25,6 +25,7 @@ from .const import (
     CONF_HW_SYNC,
     CONF_MOMENTARY,
     CONF_PULSE_TIME,
+    CONF_READOUT_ENABLED,
     CONF_PULL_MODE,
     CONF_SCAN_RATE,
     DEFAULT_HW_SYNC,
@@ -33,6 +34,7 @@ from .const import (
     DEFAULT_INVERT_LOGIC,
     DEFAULT_MOMENTARY,
     DEFAULT_PULSE_TIME,
+    DEFAULT_READOUT_ENABLED,
     DEFAULT_SCAN_RATE,
     DOMAIN,
     PULL_MODE_UP,
@@ -74,7 +76,7 @@ IOCON_REMAP = 0x0b
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["binary_sensor", "switch"]
+PLATFORMS = ["binary_sensor", "switch", "number"]
 
 MCP23017_DATA_LOCK = asyncio.Lock()
 SCAN_RATE_DEFAULT = DEFAULT_SCAN_RATE
@@ -386,12 +388,15 @@ async def async_unload_entry(hass, config_entry):
     return True
 
 
-async def async_get_or_create(hass, config_entry, entity):
+async def async_get_or_create(hass, config_entry, entity, register_entity=True):
     """Get or create a MCP23017 component from entity i2c address."""
     i2c_address = entity.address
     i2c_bus = entity.bus
     scan_rate = _normalize_scan_rate(
         config_entry.data.get(CONF_SCAN_RATE, SCAN_RATE_DEFAULT)
+    )
+    readout_enabled = bool(
+        config_entry.data.get(CONF_READOUT_ENABLED, DEFAULT_READOUT_ENABLED)
     )
     domain_id = MCP23017.domain_id(i2c_bus, i2c_address)
 
@@ -399,11 +404,11 @@ async def async_get_or_create(hass, config_entry, entity):
         async with MCP23017_DATA_LOCK:
             if domain_id in hass.data[DOMAIN]:
                 component = hass.data[DOMAIN][domain_id]
-                component.scan_rate = scan_rate
             else:
                 component = await hass.async_add_executor_job(
                     functools.partial(MCP23017, hass, i2c_bus, i2c_address, scan_rate)
                 )
+                component.readout_enabled = readout_enabled
                 hass.data[DOMAIN][domain_id] = component
 
                 if hass.is_running:
@@ -418,9 +423,10 @@ async def async_get_or_create(hass, config_entry, entity):
                     name=component.unique_id,
                 )
 
-            await hass.async_add_executor_job(
-                functools.partial(component.register_entity, entity)
-            )
+            if register_entity:
+                await hass.async_add_executor_job(
+                    functools.partial(component.register_entity, entity)
+                )
     except ValueError as error:
         component = None
         persistent_notification.create(
@@ -450,6 +456,7 @@ class MCP23017:
         self._address = address
         self._busNumber = bus
         self._scan_rate = _normalize_scan_rate(scan_rate)
+        self._readout_enabled = DEFAULT_READOUT_ENABLED
         self.hass = hass
         self._i2c_fault_count = 0
 
@@ -614,6 +621,16 @@ class MCP23017:
         """Set polling scan rate."""
         self._scan_rate = _normalize_scan_rate(value)
 
+    @property
+    def readout_enabled(self):
+        """Return whether periodic readout is enabled."""
+        return self._readout_enabled
+
+    @readout_enabled.setter
+    def readout_enabled(self, value):
+        """Enable or disable periodic readout."""
+        self._readout_enabled = bool(value)
+
     @staticmethod
     def domain_id(i2c_bus, i2c_address):
         """Returns address decorated with bus"""
@@ -737,7 +754,8 @@ class MCP23017:
 
         try:
             while self._run:
-                await self._async_i2c_call(self._poll_once_sync)
+                if self._readout_enabled:
+                    await self._async_i2c_call(self._poll_once_sync)
                 await asyncio.sleep(self._scan_rate)
         except asyncio.CancelledError:
             _LOGGER.info("%s polling task cancelled", self.unique_id)

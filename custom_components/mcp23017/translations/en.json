@@ -5,16 +5,14 @@
                 "title": "Define MCP23017 Chip",
                 "data": {
                     "i2c_address": "I2C address",
-                    "i2c_bus": "I2C bus",
-                    "scan_rate": "Scan rate (seconds)"
+                    "i2c_bus": "I2C bus"
                 }
             },
             "reconfigure": {
                 "title": "Reconfigure MCP23017 Chip",
                 "data": {
                     "i2c_address": "I2C address",
-                    "i2c_bus": "I2C bus",
-                    "scan_rate": "Scan rate (seconds)"
+                    "i2c_bus": "I2C bus"
                 }
             }
         },

@@ -336,9 +336,6 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_I2C_ADDRESS, default=DEFAULT_I2C_ADDRESS): vol.All(
                     vol.Coerce(int), vol.Range(min=0, max=127)
                 ),
-                vol.Required(CONF_SCAN_RATE, default=DEFAULT_SCAN_RATE): vol.All(
-                    vol.Coerce(float), vol.Range(min=MIN_SCAN_RATE)
-                ),
             }
         )
 
@@ -358,7 +355,6 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             i2c_bus = int(user_input[CONF_I2C_BUS])
             i2c_address = int(user_input[CONF_I2C_ADDRESS])
-            scan_rate = _normalize_scan_rate(user_input.get(CONF_SCAN_RATE))
             unique_id = _chip_unique_id(i2c_bus, i2c_address)
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
@@ -371,7 +367,6 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_I2C_BUS: i2c_bus,
                     CONF_I2C_ADDRESS: i2c_address,
-                    CONF_SCAN_RATE: scan_rate,
                 },
             )
 
@@ -391,7 +386,6 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             i2c_bus = int(user_input[CONF_I2C_BUS])
             i2c_address = int(user_input[CONF_I2C_ADDRESS])
-            scan_rate = _normalize_scan_rate(user_input.get(CONF_SCAN_RATE))
             unique_id = _chip_unique_id(i2c_bus, i2c_address)
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_mismatch()
@@ -405,7 +399,6 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data_updates={
                         CONF_I2C_BUS: i2c_bus,
                         CONF_I2C_ADDRESS: i2c_address,
-                        CONF_SCAN_RATE: scan_rate,
                     },
                     unique_id=unique_id,
                 )

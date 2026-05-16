@@ -15,6 +15,7 @@ CONF_HW_SYNC = "hw_sync"
 
 CONF_MOMENTARY = "momentary"
 CONF_PULSE_TIME = "pulse_time"
+CONF_READOUT_ENABLED = "readout_enabled"
 
 CONF_FLOW_PLATFORM = "platform"
 CONF_FLOW_PIN_NUMBER = "pin_number"
@@ -33,3 +34,4 @@ DEFAULT_HW_SYNC = True
 
 DEFAULT_MOMENTARY = False
 DEFAULT_PULSE_TIME = 200
+DEFAULT_READOUT_ENABLED = True

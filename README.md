@@ -24,7 +24,8 @@ MCP23008/MCP23017 implementation for Home Assistant (HA)
     * Restart HA and clear browser cache (or restart a browser); latter is required for new config_flow to show up
 ### 2. Add your mcp23017 component(s) using either:
    - **config flow** (Configuration->Integrations->Add integration)
-     - First add one MCP23017 **chip** entry (I2C bus, I2C address, scan rate).
+     - First add one MCP23017 **chip** entry (I2C bus, I2C address).
+     - Then use chip-level entities to control **Readout enabled** and **Scan rate**.
      - Then add one **pin subentry** per GPIO pin from that chip entry.
      - Pin parameters (invert logic, pull-up, hw_sync, momentary, ...) can be adapted by reconfiguring the pin subentry.
    - **configuration.yaml** see configuration example below.
