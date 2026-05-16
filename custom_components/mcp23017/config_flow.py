@@ -57,7 +57,14 @@ def _chip_unique_id(i2c_bus: int, i2c_address: int) -> str:
 
 
 def _pin_subentry_unique_id(platform: str, pin_number: int) -> str:
-    return f"pin.{platform}.{pin_number:02d}"
+    return f"{platform}:{pin_number}"
+
+
+def _pin_subentry_title(pin_data: dict[str, Any]) -> str:
+    pin_number = int(pin_data[CONF_FLOW_PIN_NUMBER])
+    platform = str(pin_data[CONF_FLOW_PLATFORM])
+    pin_name = str(pin_data[CONF_FLOW_PIN_NAME])
+    return f"pin {pin_number:02d}, {platform}: {pin_name}"
 
 
 def _default_pin_name(i2c_bus: int, i2c_address: int, pin_number: int) -> str:
@@ -310,7 +317,10 @@ class Mcp23017PinSubentryFlowHandler(ConfigSubentryFlow):
                 )
             )
             if not errors:
-                return self.async_create_entry(title="", data=submitted)
+                return self.async_create_entry(
+                    title=_pin_subentry_title(submitted),
+                    data=submitted,
+                )
 
             default_data = submitted
 
@@ -379,7 +389,12 @@ class Mcp23017PinSubentryFlowHandler(ConfigSubentryFlow):
                 updated[CONF_FLOW_PIN_NUMBER], current_pin=current_pin
             )
             if not errors:
-                return self.async_update_and_abort(self._subentry, data=updated)
+                return self.async_update_and_abort(
+                    entry=self._get_reconfigure_entry(),
+                    subentry=self._get_reconfigure_subentry(),
+                    data_updates=updated,
+                    title=_pin_subentry_title(updated),
+                )
 
             current = updated
             platform = updated[CONF_FLOW_PLATFORM]
@@ -458,7 +473,7 @@ class Mcp23017ConfigFlow(ConfigFlow, domain=DOMAIN):
                         subentry_id="",
                         unique_id=subentry_unique_id,
                         subentry_type=SUBENTRY_TYPE_PIN,
-                        title=subentry_data[CONF_FLOW_PIN_NAME],
+                        title=_pin_subentry_title(subentry_data),
                         data=subentry_data,
                     ),
                 )

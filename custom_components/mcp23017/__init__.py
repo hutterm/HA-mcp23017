@@ -133,10 +133,10 @@ def _pin_subentry_unique_id(platform: str, pin_number: int) -> str:
 
 
 def _pin_subentry_title(data: dict) -> str:
-    return (
-        f"{data[CONF_FLOW_PIN_NAME]} "
-        f"({data[CONF_FLOW_PLATFORM]}, pin {data[CONF_FLOW_PIN_NUMBER]})"
-    )
+    pin_number = int(data[CONF_FLOW_PIN_NUMBER])
+    platform = str(data[CONF_FLOW_PLATFORM])
+    pin_name = str(data[CONF_FLOW_PIN_NAME])
+    return f"pin {pin_number:02d}, {platform}: {pin_name}"
 
 
 def _normalize_scan_rate(scan_rate) -> float:
@@ -379,16 +379,34 @@ def _ensure_subentry(
         subentry_data[CONF_FLOW_PLATFORM],
         pin_number,
     )
+    subentry_title = _pin_subentry_title(subentry_data)
+
+    matching_subentries: list[ConfigSubentry] = []
     for existing_subentry in config_entry.subentries.values():
         if int(existing_subentry.data.get(CONF_FLOW_PIN_NUMBER, -1)) == pin_number:
-            return existing_subentry
+            matching_subentries.append(existing_subentry)
+            continue
         if existing_subentry.unique_id == subentry_unique_id:
+            matching_subentries.append(existing_subentry)
+
+    if len(matching_subentries) == 1:
+        existing_subentry = matching_subentries[0]
+        if (
+            existing_subentry.unique_id == subentry_unique_id
+            and existing_subentry.title == subentry_title
+            and dict(existing_subentry.data) == subentry_data
+        ):
             return existing_subentry
+
+    for existing_subentry in matching_subentries:
+        hass.config_entries.async_remove_subentry(
+            config_entry, existing_subentry.subentry_id
+        )
 
     subentry = ConfigSubentry(
         data=MappingProxyType(subentry_data),
         subentry_type=SUBENTRY_TYPE_PIN,
-        title=_pin_subentry_title(subentry_data),
+        title=subentry_title,
         unique_id=subentry_unique_id,
     )
     hass.config_entries.async_add_subentry(config_entry, subentry)
@@ -599,6 +617,7 @@ async def async_setup_entry(hass, config_entry):
     """Set up the MCP23017 from a config entry."""
     with setup_entry_status:
         await async_migrate_entry_pin_configs(hass, config_entry)
+        _clear_entities_from_subentries(hass, config_entry)
 
         await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 

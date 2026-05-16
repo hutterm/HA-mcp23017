@@ -102,7 +102,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         switch_entity = MCP23017Switch(hass, config_entry, subentry.data)
         switch_entity.device = await async_get_or_create(hass, config_entry, switch_entity)
         if await switch_entity.configure_device():
-            async_add_entities([switch_entity], config_subentry_id=subentry.subentry_id)
+            async_add_entities([switch_entity])
 
 
 async def async_unload_entry(hass, config_entry):

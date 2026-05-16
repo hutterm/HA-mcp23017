@@ -85,10 +85,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             binary_sensor_entity,
         )
         if await binary_sensor_entity.configure_device():
-            async_add_entities(
-                [binary_sensor_entity],
-                config_subentry_id=subentry.subentry_id,
-            )
+            async_add_entities([binary_sensor_entity])
 
 
 async def async_unload_entry(hass, config_entry):
