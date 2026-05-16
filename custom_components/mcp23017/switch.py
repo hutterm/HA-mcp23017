@@ -25,6 +25,7 @@ from .const import (
     CONF_INVERT_LOGIC,
     CONF_HW_SYNC,
     CONF_MOMENTARY,
+    CONF_PIN_CONFIGS,
     CONF_PINS,
     CONF_PULSE_TIME,
     CONF_READOUT_ENABLED,
@@ -92,17 +93,21 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     if readout_switch.device is not None:
         switches.append(readout_switch)
 
+    pin_configs = config_entry.data.get(
+        CONF_PIN_CONFIGS,
+        [dict(subentry.data) for subentry in config_entry.subentries.values()],
+    )
     sorted_subentries = sorted(
         (
-            subentry
-            for subentry in config_entry.subentries.values()
-            if subentry.data.get(CONF_FLOW_PLATFORM) == "switch"
+            pin_config
+            for pin_config in pin_configs
+            if pin_config.get(CONF_FLOW_PLATFORM) == "switch"
         ),
-        key=lambda subentry: int(subentry.data.get(CONF_FLOW_PIN_NUMBER, 0)),
+        key=lambda pin_config: int(pin_config.get(CONF_FLOW_PIN_NUMBER, 0)),
     )
 
-    for subentry in sorted_subentries:
-        switch_entity = MCP23017Switch(hass, config_entry, subentry.data)
+    for pin_config in sorted_subentries:
+        switch_entity = MCP23017Switch(hass, config_entry, pin_config)
         switch_entity.device = await async_get_or_create(hass, config_entry, switch_entity)
         if await switch_entity.configure_device():
             switches.append(switch_entity)

@@ -28,6 +28,7 @@ from .const import (
     CONF_FLOW_PIN_NAME,
     CONF_FLOW_PIN_NUMBER,
     CONF_HW_SYNC,
+    CONF_PIN_CONFIGS,
     CONF_MOMENTARY,
     CONF_PULSE_TIME,
     CONF_READOUT_ENABLED,
@@ -150,6 +151,81 @@ def _normalize_pull_mode(pull_mode):
     if isinstance(pull_mode, str):
         return PULL_MODE_NONE if pull_mode.lower() == PULL_MODE_NONE else PULL_MODE_UP
     return PULL_MODE_UP
+
+
+def _normalize_pin_config(pin_config: dict) -> dict | None:
+    try:
+        pin_number = int(pin_config[CONF_FLOW_PIN_NUMBER])
+        platform = str(pin_config[CONF_FLOW_PLATFORM])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    if platform not in ("binary_sensor", "switch"):
+        return None
+
+    pin_name = str(pin_config.get(CONF_FLOW_PIN_NAME, f"pin {pin_number}")).strip()
+    if not pin_name:
+        pin_name = f"pin {pin_number}"
+
+    normalized: dict = {
+        CONF_FLOW_PLATFORM: platform,
+        CONF_FLOW_PIN_NUMBER: pin_number,
+        CONF_FLOW_PIN_NAME: pin_name,
+        CONF_INVERT_LOGIC: bool(pin_config.get(CONF_INVERT_LOGIC, DEFAULT_INVERT_LOGIC)),
+    }
+
+    if platform == "binary_sensor":
+        normalized[CONF_PULL_MODE] = _normalize_pull_mode(pin_config.get(CONF_PULL_MODE))
+    else:
+        normalized[CONF_HW_SYNC] = bool(pin_config.get(CONF_HW_SYNC, DEFAULT_HW_SYNC))
+        normalized[CONF_MOMENTARY] = bool(pin_config.get(CONF_MOMENTARY, DEFAULT_MOMENTARY))
+        normalized[CONF_PULSE_TIME] = max(
+            0,
+            int(pin_config.get(CONF_PULSE_TIME, DEFAULT_PULSE_TIME)),
+        )
+
+    return normalized
+
+
+def _pin_configs_from_entry(config_entry: ConfigEntry) -> list[dict]:
+    pin_configs_by_pin: dict[int, dict] = {}
+
+    for pin_config in config_entry.data.get(CONF_PIN_CONFIGS, []):
+        normalized = _normalize_pin_config(dict(pin_config))
+        if normalized is not None:
+            pin_configs_by_pin[int(normalized[CONF_FLOW_PIN_NUMBER])] = normalized
+
+    for subentry_data in config_entry.data.get(CONF_IMPORT_SUBENTRIES, []):
+        normalized = _normalize_pin_config(dict(subentry_data))
+        if normalized is not None:
+            pin_configs_by_pin[int(normalized[CONF_FLOW_PIN_NUMBER])] = normalized
+
+    for subentry in config_entry.subentries.values():
+        normalized = _normalize_pin_config(dict(subentry.data))
+        if normalized is not None:
+            pin_configs_by_pin[int(normalized[CONF_FLOW_PIN_NUMBER])] = normalized
+
+    return [pin_configs_by_pin[pin] for pin in sorted(pin_configs_by_pin)]
+
+
+async def async_migrate_entry_pin_configs(hass, config_entry: ConfigEntry) -> None:
+    """Collapse pin subentries into parent entry pin_configs data."""
+    pin_configs = _pin_configs_from_entry(config_entry)
+
+    new_data = {
+        key: value
+        for key, value in config_entry.data.items()
+        if key != CONF_IMPORT_SUBENTRIES and key != CONF_PIN_CONFIGS
+    }
+    if pin_configs:
+        new_data[CONF_PIN_CONFIGS] = pin_configs
+
+    if new_data != dict(config_entry.data):
+        hass.config_entries.async_update_entry(config_entry, data=new_data)
+
+    if config_entry.subentries:
+        for subentry_id in list(config_entry.subentries):
+            hass.config_entries.async_remove_subentry(config_entry, subentry_id)
 
 
 def _normalize_pattern_state(value: Any) -> bool:
@@ -407,14 +483,20 @@ async def async_migrate_integration(hass) -> None:
             title=_chip_title(i2c_bus, i2c_address),
         )
 
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        await async_migrate_entry_pin_configs(hass, entry)
+
 
 async def async_migrate_entry(hass, config_entry):
     """Migrate old config entries."""
     _LOGGER.info("Migrating from version %s", config_entry.version)
-    if config_entry.version > 4:
+    if config_entry.version > 5:
         return False
     if config_entry.version < 4:
         await async_migrate_integration(hass)
+    await async_migrate_entry_pin_configs(hass, config_entry)
+    if config_entry.version < 5:
+        hass.config_entries.async_update_entry(config_entry, version=5)
     return True
 
 
@@ -518,18 +600,7 @@ async def _async_entry_updated(hass, config_entry):
 async def async_setup_entry(hass, config_entry):
     """Set up the MCP23017 from a config entry."""
     with setup_entry_status:
-        imported_subentries = config_entry.data.get(CONF_IMPORT_SUBENTRIES, [])
-        if imported_subentries:
-            for subentry_data in imported_subentries:
-                _ensure_subentry(hass, config_entry, dict(subentry_data))
-            hass.config_entries.async_update_entry(
-                config_entry,
-                data={
-                    key: value
-                    for key, value in config_entry.data.items()
-                    if key != CONF_IMPORT_SUBENTRIES
-                },
-            )
+        await async_migrate_entry_pin_configs(hass, config_entry)
 
         _clear_entities_from_subentries(hass, config_entry)
         await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)

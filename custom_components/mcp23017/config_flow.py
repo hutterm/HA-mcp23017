@@ -27,6 +27,7 @@ from .const import (
     CONF_I2C_ADDRESS,
     CONF_I2C_BUS,
     CONF_INVERT_LOGIC,
+    CONF_PIN_CONFIGS,
     CONF_PINS,
     CONF_PULL_MODE,
     CONF_HW_SYNC,
@@ -126,6 +127,9 @@ class Mcp23017PinSubentryFlowHandler(ConfigSubentryFlow):
     @callback
     def _used_pins(self) -> set[int]:
         used_pins: set[int] = set()
+        for pin_config in self._get_entry().data.get(CONF_PIN_CONFIGS, []):
+            if CONF_FLOW_PIN_NUMBER in pin_config:
+                used_pins.add(int(pin_config[CONF_FLOW_PIN_NUMBER]))
         for subentry in self._get_entry().subentries.values():
             if CONF_FLOW_PIN_NUMBER in subentry.data:
                 used_pins.add(int(subentry.data[CONF_FLOW_PIN_NUMBER]))
@@ -314,7 +318,7 @@ class Mcp23017PinSubentryFlowHandler(ConfigSubentryFlow):
 class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """MCP23017 config flow."""
 
-    VERSION = 4
+    VERSION = 5
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
 
     @classmethod
@@ -459,15 +463,20 @@ class Mcp23017ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
         if existing_entry is not None:
+            existing_pins = {
+                int(pin_config[CONF_FLOW_PIN_NUMBER])
+                for pin_config in existing_entry.data.get(CONF_PIN_CONFIGS, [])
+                if CONF_FLOW_PIN_NUMBER in pin_config
+            }
             for data in subentry_data:
+                pin_number = int(data[CONF_FLOW_PIN_NUMBER])
                 pin_unique_id = _pin_unique_id(
                     str(data[CONF_FLOW_PLATFORM]),
-                    int(data[CONF_FLOW_PIN_NUMBER]),
+                    pin_number,
                 )
-                if any(
+                if pin_number in existing_pins or any(
                     sub.unique_id == pin_unique_id
-                    or int(sub.data.get(CONF_FLOW_PIN_NUMBER, -1))
-                    == int(data[CONF_FLOW_PIN_NUMBER])
+                    or int(sub.data.get(CONF_FLOW_PIN_NUMBER, -1)) == pin_number
                     for sub in existing_entry.subentries.values()
                 ):
                     continue

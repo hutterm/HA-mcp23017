@@ -22,6 +22,7 @@ CONF_FLOW_PIN_NUMBER = "pin_number"
 CONF_FLOW_PIN_NAME = "pin_name"
 SUBENTRY_TYPE_PIN = "pin"
 CONF_IMPORT_SUBENTRIES = "_import_subentries"
+CONF_PIN_CONFIGS = "pin_configs"
 
 SERVICE_RUN_PATTERN = "run_pattern"
 SERVICE_STOP_PATTERN = "stop_pattern"
