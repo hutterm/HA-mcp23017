@@ -1,0 +1,102 @@
+run_pattern:
+  name: Run pattern
+  description: Start or replace a named timed on/off pattern on one MCP23017 chip.
+  fields:
+    i2c_bus:
+      name: I2C bus
+      description: I2C bus number of the target chip.
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 9
+          step: 1
+          mode: box
+    i2c_address:
+      name: I2C address
+      description: I2C address of the target chip.
+      required: true
+      example: 32
+      selector:
+        number:
+          min: 0
+          max: 127
+          step: 1
+          mode: box
+    name:
+      name: Pattern name
+      description: Pattern identifier, unique per chip while running.
+      required: true
+      example: demo_2_6
+      selector:
+        text:
+    pins:
+      name: Pins
+      description: Output switch pins to drive together.
+      required: true
+      example: [2, 6]
+      selector:
+        object:
+    steps:
+      name: Steps
+      description: >
+        Ordered list of {state, duration_ms} objects.
+        Example: [{"state":"on","duration_ms":200},{"state":"off","duration_ms":300}]
+      required: true
+      selector:
+        object:
+    repeat_count:
+      name: Repeat count
+      description: Number of full step-sequence loops to run. Use exactly one repeat field.
+      required: false
+      example: 15
+      selector:
+        number:
+          min: 1
+          step: 1
+          mode: box
+    repeat_for_seconds:
+      name: Repeat for seconds
+      description: Total runtime in seconds. Use exactly one repeat field.
+      required: false
+      example: 20
+      selector:
+        number:
+          min: 0.001
+          step: 0.001
+          mode: box
+
+stop_pattern:
+  name: Stop pattern
+  description: Stop a running named pattern on one MCP23017 chip.
+  fields:
+    i2c_bus:
+      name: I2C bus
+      description: I2C bus number of the target chip.
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 9
+          step: 1
+          mode: box
+    i2c_address:
+      name: I2C address
+      description: I2C address of the target chip.
+      required: true
+      example: 32
+      selector:
+        number:
+          min: 0
+          max: 127
+          step: 1
+          mode: box
+    name:
+      name: Pattern name
+      description: Name of the running pattern to stop.
+      required: true
+      example: demo_2_6
+      selector:
+        text:

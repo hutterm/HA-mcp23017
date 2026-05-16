@@ -75,3 +75,50 @@ switch:
       2 : Output_6
       3 : Output_7
 ```
+
+## Timed output patterns (services)
+
+You can start and stop named timed patterns on output pins through services:
+
+- `mcp23017.run_pattern`
+- `mcp23017.stop_pattern`
+
+`run_pattern` requires:
+- `i2c_bus`, `i2c_address`
+- `name` (pattern name, scoped per chip)
+- `pins` (list of output pins)
+- `steps` (list of `{state, duration_ms}`)
+- exactly one repeat mode:
+  - `repeat_count`
+  - `repeat_for_seconds`
+
+Example:
+
+```yaml
+service: mcp23017.run_pattern
+data:
+  i2c_bus: 1
+  i2c_address: 32
+  name: demo_2_6
+  pins: [2, 6]
+  steps:
+    - state: "on"
+      duration_ms: 200
+    - state: "off"
+      duration_ms: 300
+    - state: "on"
+      duration_ms: 400
+    - state: "off"
+      duration_ms: 1000
+  repeat_count: 15
+```
+
+Stop it:
+
+```yaml
+service: mcp23017.stop_pattern
+data:
+  i2c_bus: 1
+  i2c_address: 32
+  name: demo_2_6
+```

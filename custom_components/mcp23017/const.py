@@ -23,6 +23,16 @@ CONF_FLOW_PIN_NAME = "pin_name"
 SUBENTRY_TYPE_PIN = "pin"
 CONF_IMPORT_SUBENTRIES = "_import_subentries"
 
+SERVICE_RUN_PATTERN = "run_pattern"
+SERVICE_STOP_PATTERN = "stop_pattern"
+ATTR_PATTERN_NAME = "name"
+ATTR_PATTERN_PINS = "pins"
+ATTR_PATTERN_STEPS = "steps"
+ATTR_PATTERN_STATE = "state"
+ATTR_PATTERN_DURATION_MS = "duration_ms"
+ATTR_PATTERN_REPEAT_COUNT = "repeat_count"
+ATTR_PATTERN_REPEAT_FOR_SECONDS = "repeat_for_seconds"
+
 DEFAULT_SCAN_RATE = 0.1  # seconds
 DEFAULT_I2C_BUS = 1  # use /dev/i2c-{DEFAULT_I2C_BUS}
 DEFAULT_I2C_ADDRESS = 0x20

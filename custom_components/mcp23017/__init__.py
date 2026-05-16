@@ -4,14 +4,19 @@ import asyncio
 import functools
 import logging
 from collections import defaultdict
+from time import monotonic
 from types import MappingProxyType
+from typing import Any
 
 import smbus2
+import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import EVENT_HOMEASSISTANT_START, EVENT_HOMEASSISTANT_STOP
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry, entity_registry as er
+import homeassistant.helpers.config_validation as cv
 from homeassistant.components import persistent_notification
 
 from .const import (
@@ -28,6 +33,15 @@ from .const import (
     CONF_READOUT_ENABLED,
     CONF_PULL_MODE,
     CONF_SCAN_RATE,
+    SERVICE_RUN_PATTERN,
+    SERVICE_STOP_PATTERN,
+    ATTR_PATTERN_DURATION_MS,
+    ATTR_PATTERN_NAME,
+    ATTR_PATTERN_PINS,
+    ATTR_PATTERN_REPEAT_COUNT,
+    ATTR_PATTERN_REPEAT_FOR_SECONDS,
+    ATTR_PATTERN_STATE,
+    ATTR_PATTERN_STEPS,
     DEFAULT_HW_SYNC,
     DEFAULT_I2C_BUS,
     DEFAULT_I2C_LOCKS_KEY,
@@ -83,6 +97,9 @@ SCAN_RATE_DEFAULT = DEFAULT_SCAN_RATE
 
 I2C_LOCKS_KEY = DEFAULT_I2C_LOCKS_KEY
 
+_PATTERN_STATE_ON = {"on", "true", "1"}
+_PATTERN_STATE_OFF = {"off", "false", "0"}
+
 
 class SetupEntryStatus:
     """Class registering the number of outstanding async_setup_entry calls."""
@@ -133,6 +150,79 @@ def _normalize_pull_mode(pull_mode):
     if isinstance(pull_mode, str):
         return PULL_MODE_NONE if pull_mode.lower() == PULL_MODE_NONE else PULL_MODE_UP
     return PULL_MODE_UP
+
+
+def _normalize_pattern_state(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        state = value.lower()
+        if state in _PATTERN_STATE_ON:
+            return True
+        if state in _PATTERN_STATE_OFF:
+            return False
+    raise HomeAssistantError(
+        f"Invalid pattern step state: {value}. Use one of on/off/true/false/1/0."
+    )
+
+
+def _validate_pattern_name(value: str) -> str:
+    name = value.strip()
+    if not name:
+        raise vol.Invalid("Pattern name cannot be empty")
+    return name
+
+
+PATTERN_STEP_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PATTERN_STATE): vol.Any(
+            bool,
+            cv.string,
+            vol.All(vol.Coerce(int), vol.Range(min=0, max=1)),
+        ),
+        vol.Required(ATTR_PATTERN_DURATION_MS): vol.All(
+            vol.Coerce(int), vol.Range(min=1)
+        ),
+    }
+)
+
+RUN_PATTERN_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_I2C_BUS): vol.All(vol.Coerce(int), vol.Range(min=0, max=9)),
+        vol.Required(CONF_I2C_ADDRESS): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=127)
+        ),
+        vol.Required(ATTR_PATTERN_NAME): _validate_pattern_name,
+        vol.Required(ATTR_PATTERN_PINS): vol.All(
+            cv.ensure_list,
+            [vol.All(vol.Coerce(int), vol.Range(min=0, max=15))],
+            vol.Length(min=1),
+        ),
+        vol.Required(ATTR_PATTERN_STEPS): vol.All(
+            cv.ensure_list,
+            [PATTERN_STEP_SCHEMA],
+            vol.Length(min=1),
+        ),
+        vol.Optional(ATTR_PATTERN_REPEAT_COUNT): vol.All(
+            vol.Coerce(int), vol.Range(min=1)
+        ),
+        vol.Optional(ATTR_PATTERN_REPEAT_FOR_SECONDS): vol.All(
+            vol.Coerce(float), vol.Range(min=0.001)
+        ),
+    }
+)
+
+STOP_PATTERN_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_I2C_BUS): vol.All(vol.Coerce(int), vol.Range(min=0, max=9)),
+        vol.Required(CONF_I2C_ADDRESS): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=127)
+        ),
+        vol.Required(ATTR_PATTERN_NAME): _validate_pattern_name,
+    }
+)
 
 
 def _legacy_subentry_data(config_entry: ConfigEntry) -> dict:
@@ -328,12 +418,79 @@ async def async_setup(hass, config):
 
     await async_migrate_integration(hass)
 
+    async def async_handle_run_pattern(call):
+        data = call.data
+        repeat_count = data.get(ATTR_PATTERN_REPEAT_COUNT)
+        repeat_for_seconds = data.get(ATTR_PATTERN_REPEAT_FOR_SECONDS)
+        if (repeat_count is None) == (repeat_for_seconds is None):
+            raise HomeAssistantError(
+                f"Specify exactly one of {ATTR_PATTERN_REPEAT_COUNT} or "
+                f"{ATTR_PATTERN_REPEAT_FOR_SECONDS}"
+            )
+
+        requested_pins = [int(pin) for pin in data[ATTR_PATTERN_PINS]]
+        pins = list(dict.fromkeys(requested_pins))
+        if len(pins) != len(requested_pins):
+            raise HomeAssistantError("Pattern pin list contains duplicates")
+
+        steps = [
+            (
+                _normalize_pattern_state(step[ATTR_PATTERN_STATE]),
+                int(step[ATTR_PATTERN_DURATION_MS]),
+            )
+            for step in data[ATTR_PATTERN_STEPS]
+        ]
+
+        i2c_bus = int(data[CONF_I2C_BUS])
+        i2c_address = int(data[CONF_I2C_ADDRESS])
+        pattern_name = _validate_pattern_name(data[ATTR_PATTERN_NAME])
+        domain_id = MCP23017.domain_id(i2c_bus, i2c_address)
+        component = hass.data[DOMAIN].get(domain_id)
+        if component is None:
+            raise HomeAssistantError(f"Chip {domain_id} is not loaded")
+
+        await component.async_start_pattern(
+            pattern_name,
+            pins,
+            steps,
+            repeat_count=repeat_count,
+            repeat_for_seconds=repeat_for_seconds,
+        )
+
+    async def async_handle_stop_pattern(call):
+        data = call.data
+        i2c_bus = int(data[CONF_I2C_BUS])
+        i2c_address = int(data[CONF_I2C_ADDRESS])
+        pattern_name = _validate_pattern_name(data[ATTR_PATTERN_NAME])
+        domain_id = MCP23017.domain_id(i2c_bus, i2c_address)
+        component = hass.data[DOMAIN].get(domain_id)
+        if component is None:
+            raise HomeAssistantError(f"Chip {domain_id} is not loaded")
+
+        await component.async_stop_pattern(pattern_name)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_RUN_PATTERN):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_RUN_PATTERN,
+            async_handle_run_pattern,
+            schema=RUN_PATTERN_SERVICE_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_STOP_PATTERN):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_STOP_PATTERN,
+            async_handle_stop_pattern,
+            schema=STOP_PATTERN_SERVICE_SCHEMA,
+        )
+
     def start_polling(event):
         for component in hass.data[DOMAIN].values():
             component.start_polling()
 
     async def stop_polling(event):
         for component in hass.data[DOMAIN].values():
+            await component.async_stop_all_patterns()
             await component.stop_polling()
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, start_polling)
@@ -381,6 +538,7 @@ async def async_unload_entry(hass, config_entry):
     async with MCP23017_DATA_LOCK:
         component = hass.data[DOMAIN].get(domain_id)
         if component and component.has_no_entities:
+            await component.async_stop_all_patterns()
             await component.stop_polling()
             hass.data[DOMAIN].pop(domain_id)
             _LOGGER.info("%s component destroyed", component.unique_id)
@@ -497,6 +655,9 @@ class MCP23017:
         self._task = None
         self._entities = [None for i in range(16)]
         self._update_bitmap = 0
+        self._pattern_tasks = {}
+        self._pattern_pins = {}
+        self._pattern_lock = asyncio.Lock()
 
         _LOGGER.info("%s device created", self.unique_id)
     
@@ -699,6 +860,137 @@ class MCP23017:
             entity.name,
             self.unique_id,
         )
+
+    def _is_pattern_output_pin(self, pin):
+        entity = self._entities[pin]
+        return (
+            entity is not None
+            and hasattr(entity, "async_turn_on")
+            and hasattr(entity, "async_turn_off")
+        )
+
+    async def _async_apply_pattern_pin_state(self, pin, state):
+        await self.async_set_pin_value(pin, state)
+        entity = self._entities[pin]
+        if entity is None:
+            return
+        invert_logic = bool(getattr(entity, "_invert_logic", False))
+        if hasattr(entity, "_state"):
+            entity._state = bool(state ^ invert_logic)
+        if hasattr(entity, "schedule_update_ha_state"):
+            entity.schedule_update_ha_state()
+
+    async def async_start_pattern(
+        self,
+        pattern_name,
+        pins,
+        steps,
+        *,
+        repeat_count=None,
+        repeat_for_seconds=None,
+    ):
+        """Start or replace a named pattern on this chip."""
+        if not pins:
+            raise HomeAssistantError("Pattern pins list must not be empty")
+        if not steps:
+            raise HomeAssistantError("Pattern must define at least one step")
+        if (repeat_count is None) == (repeat_for_seconds is None):
+            raise HomeAssistantError(
+                f"Specify exactly one of {ATTR_PATTERN_REPEAT_COUNT} or "
+                f"{ATTR_PATTERN_REPEAT_FOR_SECONDS}"
+            )
+
+        for pin in pins:
+            if not self._is_pattern_output_pin(pin):
+                raise HomeAssistantError(
+                    f"Pin {pin} is not configured as an output switch on {self.unique_id}"
+                )
+
+        await self.async_stop_pattern(pattern_name, missing_ok=True)
+
+        async with self._pattern_lock:
+            requested_pins = set(pins)
+            for active_name, active_pins in self._pattern_pins.items():
+                if active_name == pattern_name:
+                    continue
+                if requested_pins.intersection(active_pins):
+                    raise HomeAssistantError(
+                        f"Pattern '{pattern_name}' conflicts with running pattern "
+                        f"'{active_name}' on pins {sorted(requested_pins.intersection(active_pins))}"
+                    )
+
+            task = self.hass.loop.create_task(
+                self._async_pattern_loop(
+                    pattern_name,
+                    tuple(pins),
+                    tuple(steps),
+                    repeat_count=repeat_count,
+                    repeat_for_seconds=repeat_for_seconds,
+                )
+            )
+            self._pattern_tasks[pattern_name] = task
+            self._pattern_pins[pattern_name] = set(pins)
+
+    async def async_stop_pattern(self, pattern_name, *, missing_ok=False):
+        """Stop a named pattern."""
+        async with self._pattern_lock:
+            task = self._pattern_tasks.pop(pattern_name, None)
+            self._pattern_pins.pop(pattern_name, None)
+
+        if task is None:
+            if missing_ok:
+                return
+            raise HomeAssistantError(f"Pattern '{pattern_name}' is not running")
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def async_stop_all_patterns(self):
+        """Stop all running patterns on this chip."""
+        async with self._pattern_lock:
+            names = list(self._pattern_tasks)
+        for pattern_name in names:
+            await self.async_stop_pattern(pattern_name, missing_ok=True)
+
+    async def _async_pattern_loop(
+        self,
+        pattern_name,
+        pins,
+        steps,
+        *,
+        repeat_count=None,
+        repeat_for_seconds=None,
+    ):
+        """Execute one named pattern until finished or cancelled."""
+        loops = 0
+        start = monotonic()
+        task = asyncio.current_task()
+
+        try:
+            while True:
+                for state, duration_ms in steps:
+                    for pin in pins:
+                        await self._async_apply_pattern_pin_state(pin, state)
+                    await asyncio.sleep(duration_ms / 1000.0)
+
+                loops += 1
+                if repeat_count is not None and loops >= int(repeat_count):
+                    break
+                if (
+                    repeat_for_seconds is not None
+                    and (monotonic() - start) >= float(repeat_for_seconds)
+                ):
+                    break
+        finally:
+            for pin in pins:
+                await self._async_apply_pattern_pin_state(pin, False)
+            async with self._pattern_lock:
+                if self._pattern_tasks.get(pattern_name) is task:
+                    self._pattern_tasks.pop(pattern_name, None)
+                    self._pattern_pins.pop(pattern_name, None)
 
     def _poll_once_sync(self):
         # Read pin values for bank A and B from device only if there are associated callbacks (minimize # of I2C transactions)
