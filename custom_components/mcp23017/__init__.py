@@ -209,8 +209,10 @@ def _pin_configs_from_entry(config_entry: ConfigEntry) -> list[dict]:
 
 
 async def async_migrate_entry_pin_configs(hass, config_entry: ConfigEntry) -> None:
-    """Collapse pin subentries into parent entry pin_configs data."""
+    """Keep pin_configs and subentries in sync."""
     pin_configs = _pin_configs_from_entry(config_entry)
+    for pin_config in pin_configs:
+        _ensure_subentry(hass, config_entry, pin_config)
 
     new_data = {
         key: value
@@ -222,10 +224,6 @@ async def async_migrate_entry_pin_configs(hass, config_entry: ConfigEntry) -> No
 
     if new_data != dict(config_entry.data):
         hass.config_entries.async_update_entry(config_entry, data=new_data)
-
-    if config_entry.subentries:
-        for subentry_id in list(config_entry.subentries):
-            hass.config_entries.async_remove_subentry(config_entry, subentry_id)
 
 
 def _normalize_pattern_state(value: Any) -> bool:
@@ -490,13 +488,13 @@ async def async_migrate_integration(hass) -> None:
 async def async_migrate_entry(hass, config_entry):
     """Migrate old config entries."""
     _LOGGER.info("Migrating from version %s", config_entry.version)
-    if config_entry.version > 5:
+    if config_entry.version > 6:
         return False
     if config_entry.version < 4:
         await async_migrate_integration(hass)
     await async_migrate_entry_pin_configs(hass, config_entry)
-    if config_entry.version < 5:
-        hass.config_entries.async_update_entry(config_entry, version=5)
+    if config_entry.version < 6:
+        hass.config_entries.async_update_entry(config_entry, version=6)
     return True
 
 
@@ -602,7 +600,6 @@ async def async_setup_entry(hass, config_entry):
     with setup_entry_status:
         await async_migrate_entry_pin_configs(hass, config_entry)
 
-        _clear_entities_from_subentries(hass, config_entry)
         await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
     config_entry.async_on_unload(config_entry.add_update_listener(_async_entry_updated))

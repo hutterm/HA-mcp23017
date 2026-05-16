@@ -20,7 +20,6 @@ from .const import (
     CONF_I2C_ADDRESS,
     CONF_I2C_BUS,
     CONF_INVERT_LOGIC,
-    CONF_PIN_CONFIGS,
     CONF_PINS,
     CONF_PULL_MODE,
     DEFAULT_I2C_ADDRESS,
@@ -70,32 +69,26 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up MCP23017 binary_sensor entities from chip subentries."""
-    binary_sensors = []
-    pin_configs = config_entry.data.get(
-        CONF_PIN_CONFIGS,
-        [dict(subentry.data) for subentry in config_entry.subentries.values()],
-    )
     sorted_subentries = sorted(
-        (
-            pin_config
-            for pin_config in pin_configs
-            if pin_config.get(CONF_FLOW_PLATFORM) == "binary_sensor"
-        ),
-        key=lambda pin_config: int(pin_config.get(CONF_FLOW_PIN_NUMBER, 0)),
+        config_entry.subentries.values(),
+        key=lambda subentry: int(subentry.data.get(CONF_FLOW_PIN_NUMBER, 0)),
     )
 
-    for pin_config in sorted_subentries:
-        binary_sensor_entity = MCP23017BinarySensor(hass, config_entry, pin_config)
+    for subentry in sorted_subentries:
+        if subentry.data.get(CONF_FLOW_PLATFORM) != "binary_sensor":
+            continue
+
+        binary_sensor_entity = MCP23017BinarySensor(hass, config_entry, subentry.data)
         binary_sensor_entity.device = await async_get_or_create(
             hass,
             config_entry,
             binary_sensor_entity,
         )
         if await binary_sensor_entity.configure_device():
-            binary_sensors.append(binary_sensor_entity)
-
-    if binary_sensors:
-        async_add_entities(binary_sensors)
+            async_add_entities(
+                [binary_sensor_entity],
+                config_subentry_id=subentry.subentry_id,
+            )
 
 
 async def async_unload_entry(hass, config_entry):

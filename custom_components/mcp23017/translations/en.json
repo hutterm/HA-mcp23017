@@ -5,24 +5,27 @@
                 "title": "Define MCP23017 Chip",
                 "data": {
                     "i2c_address": "I2C address",
-                    "i2c_bus": "I2C bus"
+                    "i2c_bus": "I2C bus",
+                    "scan_rate": "Scan rate"
                 }
             },
             "reconfigure": {
                 "title": "Reconfigure MCP23017 Chip",
                 "data": {
                     "i2c_address": "I2C address",
-                    "i2c_bus": "I2C bus"
+                    "i2c_bus": "I2C bus",
+                    "scan_rate": "Scan rate"
                 }
             }
         },
         "abort": {
             "already_configured": "A device with the same configuration already exists",
-            "invalid_i2c_address": "Invalid I2C address or device not found",
-            "reconfigure_successful": "Configuration was updated"
+            "i2c_device_not_found": "I2C device not found",
+            "reconfigure_successful": "Configuration was updated",
+            "reauth_not_supported": "Reauthentication is not supported"
         },
         "error": {
-            "invalid_i2c_address": "Invalid I2C address or device not found"
+            "pin_already_configured": "Pin is already configured"
         }
     },
     "config_subentries": {
@@ -31,9 +34,9 @@
             "step": {
                 "user": {
                     "title": "Add Pin",
-                    "menu_options": {
-                        "binary_sensor": "Binary sensor (input)",
-                        "switch": "Switch (output)"
+                    "data": {
+                        "pin_number": "Pin number",
+                        "platform": "Platform"
                     }
                 },
                 "binary_sensor": {
@@ -59,6 +62,7 @@
                 "reconfigure": {
                     "title": "Reconfigure Pin",
                     "data": {
+                        "platform": "Platform",
                         "pin_number": "Pin number",
                         "pin_name": "Pin name",
                         "invert_logic": "Invert logic",
@@ -74,7 +78,7 @@
                 "reconfigure_successful": "Pin configuration was updated"
             },
             "error": {
-                "pin_in_use": "Pin is already configured"
+                "pin_already_configured": "Pin is already configured"
             }
         }
     },
