@@ -227,6 +227,22 @@ def _migrate_entities_to_subentry(
         )
 
 
+@callback
+def _clear_entities_from_subentries(
+    hass,
+    config_entry: ConfigEntry,
+) -> None:
+    """Keep chip entities attached to the parent entry."""
+    entity_reg = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(entity_reg, config_entry.entry_id):
+        if entity_entry.config_subentry_id is None:
+            continue
+        entity_reg.async_update_entity(
+            entity_entry.entity_id,
+            config_subentry_id=None,
+        )
+
+
 async def async_migrate_integration(hass) -> None:
     """Migrate legacy per-pin entries to chip entries with pin subentries."""
     entries = sorted(
@@ -344,6 +360,7 @@ async def async_setup_entry(hass, config_entry):
                 },
             )
 
+        _clear_entities_from_subentries(hass, config_entry)
         await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
     config_entry.async_on_unload(config_entry.add_update_listener(_async_entry_updated))

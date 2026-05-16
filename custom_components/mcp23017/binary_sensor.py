@@ -69,10 +69,17 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up MCP23017 binary_sensor entities from chip subentries."""
-    for subentry_id, subentry in config_entry.subentries.items():
-        if subentry.data.get(CONF_FLOW_PLATFORM) != "binary_sensor":
-            continue
+    binary_sensors = []
+    sorted_subentries = sorted(
+        (
+            subentry
+            for subentry in config_entry.subentries.values()
+            if subentry.data.get(CONF_FLOW_PLATFORM) == "binary_sensor"
+        ),
+        key=lambda subentry: int(subentry.data.get(CONF_FLOW_PIN_NUMBER, 0)),
+    )
 
+    for subentry in sorted_subentries:
         binary_sensor_entity = MCP23017BinarySensor(hass, config_entry, subentry.data)
         binary_sensor_entity.device = await async_get_or_create(
             hass,
@@ -80,7 +87,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             binary_sensor_entity,
         )
         if await binary_sensor_entity.configure_device():
-            async_add_entities([binary_sensor_entity], config_subentry_id=subentry_id)
+            binary_sensors.append(binary_sensor_entity)
+
+    if binary_sensors:
+        async_add_entities(binary_sensors)
 
 
 async def async_unload_entry(hass, config_entry):

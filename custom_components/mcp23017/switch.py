@@ -75,14 +75,24 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up MCP23017 switch entities from chip subentries."""
-    for subentry_id, subentry in config_entry.subentries.items():
-        if subentry.data.get(CONF_FLOW_PLATFORM) != "switch":
-            continue
+    switches = []
+    sorted_subentries = sorted(
+        (
+            subentry
+            for subentry in config_entry.subentries.values()
+            if subentry.data.get(CONF_FLOW_PLATFORM) == "switch"
+        ),
+        key=lambda subentry: int(subentry.data.get(CONF_FLOW_PIN_NUMBER, 0)),
+    )
 
+    for subentry in sorted_subentries:
         switch_entity = MCP23017Switch(hass, config_entry, subentry.data)
         switch_entity.device = await async_get_or_create(hass, config_entry, switch_entity)
         if await switch_entity.configure_device():
-            async_add_entities([switch_entity], config_subentry_id=subentry_id)
+            switches.append(switch_entity)
+
+    if switches:
+        async_add_entities(switches)
 
 
 async def async_unload_entry(hass, config_entry):
