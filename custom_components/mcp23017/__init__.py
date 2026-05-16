@@ -967,21 +967,34 @@ class MCP23017:
         """Execute one named pattern until finished or cancelled."""
         loops = 0
         start = monotonic()
+        deadline = (
+            start + float(repeat_for_seconds)
+            if repeat_for_seconds is not None
+            else None
+        )
         task = asyncio.current_task()
 
         try:
             while True:
                 for state, duration_ms in steps:
+                    if deadline is not None and monotonic() >= deadline:
+                        return
                     for pin in pins:
                         await self._async_apply_pattern_pin_state(pin, state)
-                    await asyncio.sleep(duration_ms / 1000.0)
+                    sleep_time = duration_ms / 1000.0
+                    if deadline is not None:
+                        remaining = deadline - monotonic()
+                        if remaining <= 0:
+                            return
+                        sleep_time = min(sleep_time, remaining)
+                    await asyncio.sleep(sleep_time)
 
                 loops += 1
                 if repeat_count is not None and loops >= int(repeat_count):
                     break
                 if (
-                    repeat_for_seconds is not None
-                    and (monotonic() - start) >= float(repeat_for_seconds)
+                    deadline is not None
+                    and monotonic() >= deadline
                 ):
                     break
         finally:
